@@ -1,0 +1,301 @@
+[
+  [
+    [
+      "techno",
+      "house",
+      "club",
+      "rave",
+      "edm",
+      "dance"
+    ],
+    3,
+    "Club Night",
+    "Electronic club music — made for the dancefloor"
+  ],
+  [
+    [
+      "ambient",
+      "atmospheric",
+      "drone",
+      "experimental"
+    ],
+    2,
+    "Atmosphere",
+    "Ambient & experimental — space to think"
+  ],
+  [
+    [
+      "drum and bass",
+      "dnb",
+      "jungle",
+      "breakbeat"
+    ],
+    2,
+    "Breakneck",
+    "Fast-paced electronic — drum & bass energy"
+  ],
+  [
+    [
+      "synthwave",
+      "retro",
+      "80s",
+      "synth"
+    ],
+    2,
+    "Neon Drive",
+    "Synthwave & retro electronics — 80s nostalgia"
+  ],
+  [
+    [
+      "lo-fi",
+      "bedroom pop",
+      "chillhop",
+      "study"
+    ],
+    2,
+    "Lo-Fi Study",
+    "Lo-fi & bedroom pop — background focus music"
+  ],
+  [
+    [
+      "rap",
+      "hip-hop",
+      "hip hop",
+      "trap",
+      "drill"
+    ],
+    3,
+    "Street Level",
+    "Hip-hop & rap — raw lyrics, heavy beats"
+  ],
+  [
+    [
+      "grime",
+      "uk grime",
+      "uk rap",
+      "roadman"
+    ],
+    2,
+    "Grime Wave",
+    "UK grime & rap — cold and calculated"
+  ],
+  [
+    [
+      "afrobeats",
+      "afropop",
+      "afro",
+      "highlife",
+      "afroswing"
+    ],
+    2,
+    "Afro Vibes",
+    "Afrobeats & Afropop — sun-soaked grooves"
+  ],
+  [
+    [
+      "heavy metal",
+      "metal",
+      "thrash",
+      "death metal"
+    ],
+    2,
+    "Full Throttle",
+    "Metal & hard rock — no brakes"
+  ],
+  [
+    [
+      "punk",
+      "hardcore",
+      "post-hardcore",
+      "emo"
+    ],
+    2,
+    "Loud & Broken",
+    "Punk & hardcore — raw and unfiltered"
+  ],
+  [
+    [
+      "rock",
+      "indie rock",
+      "alternative rock",
+      "grunge"
+    ],
+    3,
+    "Guitar Forward",
+    "Rock & alternative — guitar-driven energy"
+  ],
+  [
+    [
+      "singer-songwriter",
+      "acoustic",
+      "folk",
+      "indie folk"
+    ],
+    2,
+    "Just a Song",
+    "Singer-songwriter & folk — stripped back and honest"
+  ],
+  [
+    [
+      "k-pop",
+      "kpop",
+      "korean",
+      "idol",
+      "girl group",
+      "boy band"
+    ],
+    2,
+    "K-Pop Energy",
+    "K-pop — polished, high-production group sound"
+  ],
+  [
+    [
+      "pop",
+      "dance pop",
+      "electropop",
+      "synth-pop"
+    ],
+    4,
+    "Pop Bangers",
+    "Mainstream pop — catchy, polished, everywhere"
+  ],
+  [
+    [
+      "reggaeton",
+      "latin",
+      "latin pop",
+      "bachata",
+      "merengue"
+    ],
+    2,
+    "Ritmo Latino",
+    "Latin rhythms — reggaeton, bachata, dance"
+  ],
+  [
+    [
+      "reggae",
+      "dancehall",
+      "ska",
+      "dub",
+      "roots reggae"
+    ],
+    2,
+    "Roots & Riddim",
+    "Reggae & dancehall — slow rhythm, heavy bass"
+  ],
+  [
+    [
+      "bossa nova",
+      "samba",
+      "mpb",
+      "forro",
+      "axe"
+    ],
+    2,
+    "Brazilian Heat",
+    "Brazilian sounds — bossa, samba, MPB"
+  ],
+  [
+    [
+      "jazz",
+      "bebop",
+      "swing",
+      "big band",
+      "cool jazz"
+    ],
+    2,
+    "Jazz Hour",
+    "Jazz — improvised, sophisticated, timeless"
+  ],
+  [
+    [
+      "soul",
+      "r&b",
+      "rnb",
+      "neo soul",
+      "funk"
+    ],
+    2,
+    "Soul Session",
+    "Soul & R&B — warm, groovy, heartfelt"
+  ],
+  [
+    [
+      "blues",
+      "delta blues",
+      "chicago blues",
+      "soul blues"
+    ],
+    2,
+    "The Blues",
+    "Blues — raw emotion, guitar and voice"
+  ],
+  [
+    [
+      "classical",
+      "orchestral",
+      "symphony",
+      "chamber",
+      "opera"
+    ],
+    2,
+    "Orchestral",
+    "Classical & orchestral — composed and timeless"
+  ],
+  [
+    [
+      "baroque",
+      "renaissance",
+      "medieval",
+      "early music"
+    ],
+    2,
+    "Early Music",
+    "Baroque & early music — historical grandeur"
+  ],
+  [
+    [
+      "piano",
+      "solo piano",
+      "composer",
+      "contemporary classical"
+    ],
+    2,
+    "Piano Works",
+    "Piano-forward classical and contemporary"
+  ],
+  [
+    [
+      "country",
+      "americana",
+      "bluegrass",
+      "country rock"
+    ],
+    2,
+    "Country Roads",
+    "Country & americana — guitars, stories, space"
+  ],
+  [
+    [
+      "gospel",
+      "christian",
+      "worship",
+      "praise",
+      "spiritual"
+    ],
+    2,
+    "Spirit & Soul",
+    "Gospel & worship — uplifting and devotional"
+  ],
+  [
+    [
+      "dutch",
+      "nederpop",
+      "nederlandstalig",
+      "levenslied"
+    ],
+    2,
+    "Dutch Vibes",
+    "Nederlandstalig — Dutch-language music"
+  ]
+]

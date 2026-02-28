@@ -1,0 +1,1564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vibe Splitter</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#080808;--s1:#0f0f0f;--s2:#161616;--s3:#1e1e1e;--border:#1f1f1f;--border2:#2a2a2a;
+  --green:#1DB954;--green2:#17a349;--text:#efefef;--muted:#555;--muted2:#888;
+  --blue:#6a8fff;--amber:#f0a500;--red:#e84040;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-height:100vh;overflow-x:hidden;}
+body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;opacity:.4;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='g'%3E%3CfeTurbulence baseFrequency='.8' numOctaves='4'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23g)' opacity='.025'/%3E%3C/svg%3E");}
+body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(29,185,84,.12),transparent);
+  animation:scan 7s linear infinite;z-index:9998;pointer-events:none;}
+@keyframes scan{0%{top:0%;}100%{top:100%;}}
+@keyframes spin{to{transform:rotate(360deg);}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+
+/* HEADER */
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:18px 44px;
+  border-bottom:1px solid var(--border);position:sticky;top:0;
+  background:rgba(8,8,8,.94);backdrop-filter:blur(12px);z-index:100;}
+.logo{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:3px;
+  display:flex;align-items:center;gap:11px;}
+.lpulse{width:9px;height:9px;background:var(--green);border-radius:50%;
+  box-shadow:0 0 8px var(--green);animation:pulse 2.5s ease-in-out infinite;}
+
+/* BUTTONS */
+.btn{padding:8px 18px;border:1px solid var(--border2);background:transparent;color:var(--muted2);
+  font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;transition:all .15s;
+  letter-spacing:.8px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;}
+.btn:hover{border-color:var(--muted2);color:var(--text);}
+.btn:disabled{opacity:.3;cursor:not-allowed;}
+.btn-g{background:var(--green);border-color:var(--green);color:#000;font-weight:500;}
+.btn-g:hover{background:var(--green2);border-color:var(--green2);color:#000;}
+.btn-og{border-color:var(--green);color:var(--green);}
+.btn-og:hover{background:var(--green);color:#000;}
+.btn-red{border-color:var(--red);color:var(--red);}
+.btn-red:hover{background:var(--red);color:#fff;}
+.btn-sm{padding:4px 10px;font-size:11px;}
+.btn-xs{padding:2px 7px;font-size:10px;letter-spacing:.3px;}
+
+/* LAYOUT */
+.main{padding:32px 44px;max-width:1200px;margin:0 auto;}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;}
+.flex{display:flex;}.gap-8{gap:8px;}.gap-12{gap:12px;}.ac{align-items:center;}.jb{justify-content:space-between;}
+.divider{height:1px;background:var(--border);margin:24px 0;}
+
+/* NAV TABS */
+.nav{display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:28px;}
+.nav-tab{padding:12px 20px;font-size:11px;letter-spacing:1.8px;color:var(--muted);
+  text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;
+  margin-bottom:-1px;transition:all .2s;background:transparent;border-top:none;
+  border-left:none;border-right:none;font-family:'DM Mono',monospace;}
+.nav-tab:hover{color:var(--muted2);}
+.nav-tab.active{color:var(--text);border-bottom-color:var(--green);}
+.nav-tab .badge-pill{display:inline-flex;align-items:center;justify-content:center;
+  width:18px;height:18px;background:var(--amber);color:#000;border-radius:50%;
+  font-size:9px;font-weight:700;margin-left:6px;}
+
+/* CARDS */
+.card{background:var(--s1);border:1px solid var(--border);padding:20px;margin-bottom:12px;}
+.ctitle{font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:var(--muted);margin-bottom:13px;}
+.stitle{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:2px;margin-bottom:4px;}
+.ssub{font-size:12px;color:var(--muted2);margin-bottom:20px;line-height:1.9;}
+
+/* FORM */
+.rg{display:flex;gap:8px;margin-bottom:14px;}
+.ro{flex:1;padding:11px 13px;border:1px solid var(--border2);cursor:pointer;
+  transition:all .15s;display:flex;align-items:center;gap:9px;font-size:12px;color:var(--muted2);}
+.ro.active{border-color:var(--green);background:rgba(29,185,84,.05);color:var(--text);}
+.ro input{accent-color:var(--green);}
+.fg{margin-bottom:12px;}
+.fl{font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;display:block;margin-bottom:6px;}
+.fsel,.finp{width:100%;padding:9px 12px;background:var(--s2);border:1px solid var(--border2);
+  color:var(--text);font-family:'DM Mono',monospace;font-size:12px;outline:none;transition:border-color .15s;}
+.fsel:focus,.finp:focus{border-color:var(--green);}
+
+/* SOURCE CHIPS */
+.source-chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px;}
+.chip{padding:6px 12px;border:1px solid var(--border2);font-size:11px;color:var(--muted2);
+  cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:6px;background:var(--s2);}
+.chip.active{border-color:var(--green);color:var(--text);background:rgba(29,185,84,.07);}
+.chip .chip-x{opacity:.5;font-size:10px;}
+.chip:hover .chip-x{opacity:1;}
+
+/* GRANULARITY SLIDER (custom) */
+#granularity {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 3px;
+  background: var(--border2);
+  border-radius: 2px;
+  outline: none;
+}
+#granularity::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--green);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 6px var(--green);
+}
+#granularity::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: var(--green);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* STATUS BAR */
+.sbar{display:flex;flex-wrap:wrap;gap:16px;padding:10px 18px;background:var(--s1);
+  border:1px solid var(--border);font-size:11px;margin-bottom:24px;align-items:center;}
+.si{display:flex;align-items:center;gap:6px;color:var(--muted2);}
+.sd{width:6px;height:6px;border-radius:50%;background:var(--muted);flex-shrink:0;}
+.sd.on{background:var(--green);box-shadow:0 0 4px var(--green);}
+.sd.warn{background:var(--amber);box-shadow:0 0 4px var(--amber);}
+
+/* VIBE PREVIEW CARDS */
+.vc{background:var(--s1);border:1px solid var(--border);padding:18px;animation:fadeUp .35s ease both;cursor:pointer;transition:border-color .15s,background .15s;}
+.vc.selected{border-color:var(--green);background:rgba(29,185,84,.06);}
+.vc.selected .vc-sel-box{border-color:var(--green);background:var(--green);color:#000;}
+.vc.merge-selected{border-color:var(--amber)!important;background:rgba(240,165,0,.05)!important;}
+.vc.merge-selected .vc-sel-box{border-color:var(--amber);background:var(--amber);color:#000;}
+.split-btn{padding:3px 8px;font-size:10px;border:1px solid var(--border2);background:transparent;
+  color:var(--muted);cursor:pointer;font-family:'DM Mono',monospace;letter-spacing:.5px;
+  transition:all .15s;}
+.split-btn:hover{border-color:var(--green);color:var(--green);}
+.split-btn:disabled{opacity:.3;cursor:not-allowed;}
+.child-badge{font-size:9px;padding:1px 5px;border:1px solid rgba(29,185,84,.3);
+  color:rgba(29,185,84,.6);letter-spacing:.5px;}
+
+/* PINTEREST PROMPTS */
+.pin-section{margin-top:12px;padding-top:10px;border-top:1px solid var(--border);}
+.pin-label{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);
+  margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+.pin-label::before{content:'';display:inline-block;width:10px;height:10px;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23e60023' d='M12 0C5.37 0 0 5.37 0 12c0 5.08 3.16 9.43 7.63 11.2-.1-.93-.2-2.36.04-3.38.22-.92 1.45-6.15 1.45-6.15s-.37-.74-.37-1.84c0-1.72.99-3 2.5-3 1.18 0 1.75.88 1.75 1.94 0 1.18-.75 2.95-1.14 4.59-.32 1.37.68 2.49 2.02 2.49 2.43 0 4.06-3.12 4.06-6.8 0-2.8-1.88-4.76-4.57-4.76-3.12 0-4.95 2.34-4.95 4.76 0 .94.36 1.95.82 2.5.09.11.1.2.08.31-.08.35-.27 1.1-.31 1.26-.05.2-.16.24-.37.15-1.39-.65-2.26-2.68-2.26-4.32 0-3.51 2.55-6.74 7.35-6.74 3.86 0 6.86 2.75 6.86 6.42 0 3.83-2.41 6.91-5.75 6.91-1.12 0-2.18-.58-2.54-1.27l-.69 2.59c-.25.97-.93 2.18-1.39 2.92.9.28 1.86.43 2.84.43 6.63 0 12-5.37 12-12S18.63 0 12 0z'/%3E%3C/svg%3E") center/contain no-repeat;}
+.pin-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:11px;}
+.pin-query{flex:1;color:var(--muted2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pin-btn{flex-shrink:0;border-color:rgba(230,0,35,.4);color:rgba(230,0,35,.8);}
+.pin-btn:hover{background:rgba(230,0,35,.15);border-color:rgba(230,0,35,.8);color:rgba(230,0,35,1);}
+.vc-sel-box{width:20px;height:20px;border:1px solid var(--border2);display:flex;align-items:center;
+  justify-content:center;font-size:11px;flex-shrink:0;transition:all .15s;background:transparent;color:transparent;}
+.vc:hover{border-color:var(--border2);}
+.vc-top{display:flex;justify-content:space-between;margin-bottom:10px;}
+.vc-num{font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;}
+.vc-cnt{font-size:11px;color:var(--green);}
+.vname{width:100%;background:transparent;border:none;border-bottom:1px solid var(--border2);
+  color:var(--text);font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:1.5px;
+  outline:none;padding-bottom:4px;margin-bottom:7px;transition:border-color .15s;}
+.vname:focus{border-bottom-color:var(--green);}
+.vdesc{font-size:11px;color:var(--muted2);margin-bottom:10px;line-height:1.7;}
+/* Axis bars */
+.axes{margin-bottom:10px;display:flex;flex-direction:column;gap:5px;}
+.axis-row{display:flex;align-items:center;gap:7px;}
+.axis-lbl{font-size:9px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase;width:44px;flex-shrink:0;}
+.axis-bar{flex:1;height:3px;background:var(--s3);border-radius:2px;overflow:hidden;}
+.axis-fill{height:100%;border-radius:2px;transition:width .5s ease;}
+.axis-val{font-size:10px;color:var(--muted2);width:40px;text-align:right;flex-shrink:0;}
+/* Health badge */
+.health{display:inline-flex;align-items:center;gap:5px;font-size:10px;padding:2px 7px;
+  border:1px solid var(--border2);color:var(--muted2);}
+.health.high{border-color:rgba(29,185,84,.4);color:var(--green);}
+.health.mid{border-color:rgba(240,165,0,.4);color:var(--amber);}
+.health.low{border-color:rgba(232,64,64,.3);color:var(--red);}
+/* Tags */
+.tags{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;}
+.tag{padding:2px 7px;background:var(--s2);border:1px solid var(--border2);font-size:10px;color:var(--muted);}
+.tag.hot{border-color:rgba(29,185,84,.35);color:rgba(29,185,84,.75);}
+/* Sample tracks */
+.samples{font-size:11px;color:var(--muted);line-height:2;}
+.sample-row{display:flex;align-items:center;justify-content:space-between;gap:6px;}
+.sample-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* PLAYLIST CARDS */
+.plc{background:var(--s1);border:1px solid var(--border);padding:16px;transition:border-color .15s;}
+.plc:hover{border-color:var(--border2);}
+.plname{width:100%;background:transparent;border:none;border-bottom:1px solid var(--border2);
+  color:var(--text);font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:1.5px;
+  outline:none;padding-bottom:3px;margin-bottom:8px;transition:border-color .15s;}
+.plname:focus{border-bottom-color:var(--green);}
+.badge{padding:2px 8px;font-size:10px;background:var(--s2);border:1px solid var(--border2);
+  text-decoration:none;color:var(--muted);letter-spacing:.5px;}
+.badge-g{background:rgba(29,185,84,.07);border-color:rgba(29,185,84,.35);color:var(--green);}
+
+/* INBOX */
+.inbox-card{background:var(--s1);border:1px solid rgba(240,165,0,.25);padding:16px;margin-bottom:10px;}
+.inbox-track{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;}
+.inbox-track:last-child{border-bottom:none;}
+.inbox-track-info{flex:1;overflow:hidden;}
+.inbox-track-name{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.inbox-track-artist{font-size:10px;color:var(--muted);margin-top:1px;}
+.inbox-tags{display:flex;gap:3px;flex-wrap:wrap;margin-top:4px;}
+.inbox-tag{padding:1px 5px;background:var(--s2);border:1px solid var(--border2);font-size:9px;color:var(--muted);}
+.cluster-select{padding:5px 8px;background:var(--s2);border:1px solid var(--border2);
+  color:var(--text);font-family:'DM Mono',monospace;font-size:11px;outline:none;min-width:140px;}
+
+/* STATS */
+.stat-big{font-family:'Bebas Neue',sans-serif;font-size:42px;letter-spacing:2px;color:var(--text);line-height:1;}
+.stat-label{font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-top:4px;}
+.tag-bar-row{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid #111;font-size:11px;}
+.tag-bar-row:last-child{border-bottom:none;}
+.tag-bar-name{width:120px;color:var(--muted2);flex-shrink:0;overflow:hidden;text-overflow:ellipsis;}
+.tag-bar-track{flex:1;height:4px;background:var(--s3);border-radius:2px;overflow:hidden;}
+.tag-bar-fill{height:100%;background:var(--green);border-radius:2px;}
+.tag-bar-count{width:36px;text-align:right;color:var(--muted);flex-shrink:0;}
+.dist-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:12px;}
+.dist-label{width:60px;color:var(--muted2);}
+.dist-bar{flex:1;height:8px;background:var(--s3);border-radius:4px;overflow:hidden;}
+.dist-fill{height:100%;border-radius:4px;}
+.dist-count{width:30px;text-align:right;font-size:11px;color:var(--muted);}
+
+/* LOG */
+.loglist{list-style:none;font-size:11px;line-height:1.9;max-height:220px;overflow-y:auto;}
+.loglist li{padding:2px 0;border-bottom:1px solid #111;color:var(--muted);}
+.loglist li:first-child{color:var(--muted2);}
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-thumb{background:var(--border2);}
+
+/* SCHED ROWS */
+.srow{padding:10px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:12px;}
+.srow:last-of-type{border-bottom:none;}
+
+/* NOTE */
+.note{padding:10px 14px;background:rgba(29,185,84,.04);border:1px solid rgba(29,185,84,.12);
+  font-size:12px;color:var(--muted2);line-height:1.8;margin-bottom:16px;}
+.note-warn{background:rgba(240,165,0,.04);border-color:rgba(240,165,0,.2);}
+.lfm{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:var(--muted);padding:3px 8px;border:1px solid var(--border);}
+.lfm-d{width:5px;height:5px;background:#d51007;border-radius:50%;}
+
+/* OVERLAY */
+#ov{display:none;position:fixed;inset:0;background:rgba(4,4,4,.96);z-index:200;
+  align-items:center;justify-content:center;flex-direction:column;gap:0;}
+#ov.show{display:flex;}
+#ov-box{width:480px;background:var(--s1);border:1px solid var(--border2);padding:32px 36px;}
+#ov-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:24px;display:flex;align-items:center;gap:12px;}
+.spin{width:16px;height:16px;border:2px solid var(--border2);border-top-color:var(--green);
+  border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0;}
+/* Progress bar */
+#ov-pbar-wrap{width:100%;height:3px;background:var(--s3);border-radius:2px;margin-bottom:24px;overflow:hidden;}
+#ov-pbar{height:100%;background:var(--green);border-radius:2px;transition:width .4s ease;width:0%;}
+/* Steps */
+#ov-steps{width:100%;display:flex;flex-direction:column;gap:8px;margin-bottom:20px;}
+.ov-step{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted);transition:color .2s;}
+.ov-step.active{color:var(--text);}
+.ov-step.done{color:var(--green);}
+.ov-step.error{color:var(--red);}
+.ov-step-icon{width:18px;height:18px;border:1px solid var(--border2);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:9px;flex-shrink:0;transition:all .2s;}
+.ov-step.active .ov-step-icon{border-color:var(--green);background:transparent;}
+.ov-step.active .ov-step-icon .step-spin{display:block;}
+.ov-step.active .ov-step-icon .step-tick{display:none;}
+.ov-step.done .ov-step-icon{border-color:var(--green);background:var(--green);color:#000;}
+.ov-step.done .ov-step-icon .step-spin{display:none;}
+.ov-step.done .ov-step-icon .step-tick{display:block;}
+.ov-step.error .ov-step-icon{border-color:var(--red);background:var(--red);color:#fff;}
+.step-spin{width:8px;height:8px;border:1px solid rgba(29,185,84,.3);border-top-color:var(--green);
+  border-radius:50%;animation:spin .6s linear infinite;display:none;}
+.step-tick{display:none;font-size:9px;}
+/* Live log */
+#ov-log-wrap{border-top:1px solid var(--border);padding-top:14px;}
+#ov-log-label{font-size:9px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;}
+#ov-log{font-size:11px;color:var(--muted);line-height:1.8;max-height:80px;overflow-y:auto;font-style:italic;}
+#ov-msg{display:none;}
+#ov-sub{display:none;}
+
+/* LOGIN */
+.login{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:78vh;text-align:center;gap:24px;}
+.login h1{font-family:'Bebas Neue',sans-serif;font-size:80px;line-height:.88;letter-spacing:4px;}
+.login h1 em{color:var(--green);font-style:normal;}
+.login p{color:var(--muted2);font-size:13px;max-width:360px;line-height:1.9;}
+</style>
+</head>
+<body>
+<div id="ov">
+  <div id="ov-box">
+    <div id="ov-title"><div class="spin"></div><span id="ov-title-text">Processing...</span></div>
+    <div id="ov-pbar-wrap"><div id="ov-pbar"></div></div>
+    <div id="ov-steps">
+      <div class="ov-step" id="ovs-load">
+        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">Approve</div></div>
+        <span id="ovs-load-txt">Loading tracks from Spotify</span>
+      </div>
+      <div class="ov-step" id="ovs-cache">
+        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">Approve</div></div>
+        <span id="ovs-cache-txt">Checking tag cache</span>
+      </div>
+      <div class="ov-step" id="ovs-tag">
+        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">Approve</div></div>
+        <span id="ovs-tag-txt">Fetching Last.fm tags</span>
+      </div>
+      <div class="ov-step" id="ovs-cluster">
+        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">Approve</div></div>
+        <span id="ovs-cluster-txt">Clustering vibes with AI embeddings</span>
+      </div>
+      <div class="ov-step" id="ovs-done">
+        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">Approve</div></div>
+        <span id="ovs-done-txt">Ready</span>
+      </div>
+    </div>
+    <div id="ov-log-wrap">
+      <div id="ov-log-label">Live Log</div>
+      <div id="ov-log">Waiting...</div>
+    </div>
+  </div>
+  <div id="ov-msg" style="display:none"></div>
+  <div id="ov-sub" style="display:none"></div>
+</div>
+
+<!-- COVER PICKER MODAL -->
+<div id="cover-modal" style="display:none;position:fixed;inset:0;background:rgba(4,4,4,.96);z-index:300;
+  align-items:center;justify-content:center;">
+  <div style="width:560px;background:var(--s1);border:1px solid var(--border2);padding:28px 32px;max-height:90vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;">Pick Cover Image</div>
+      <button class="btn btn-sm" onclick="closeCoverModal()">Close</button>
+    </div>
+    <div style="font-size:11px;color:var(--muted2);margin-bottom:16px;">Album art from Spotify tracks matching your vibe tags. Click to select, then upload.</div>
+    <div id="cover-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;">
+      <div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:24px;font-size:12px;">Loading images...</div>
+    </div>
+    <div id="cover-selected" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+      <div style="font-size:11px;color:var(--muted2);margin-bottom:8px;">Selected:</div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <img id="cover-preview-img" style="width:72px;height:72px;object-fit:cover;border:1px solid var(--border2);" src="" alt="">
+        <div>
+          <div id="cover-preview-info" style="font-size:11px;color:var(--muted2);margin-bottom:8px;"></div>
+          <button class="btn btn-g btn-sm" id="cover-upload-btn" onclick="uploadCover()">Set as Playlist Cover</button>
+          <div id="cover-upload-status" style="font-size:11px;margin-top:6px;display:none;"></div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);font-size:10px;color:var(--muted);line-height:1.8;">
+      Note: requires ugc-image-upload scope. If upload returns 403, re-login to refresh the token.
+    </div>
+  </div>
+</div>
+
+<header class="hdr">
+  <div class="logo"><div class="lpulse"></div>VIBE SPLITTER</div>
+  {% if logged_in %}
+  <div class="flex gap-12 ac">
+    <div class="lfm"><div class="lfm-d"></div>Last.fm</div>
+    <a href="/logout" class="btn">Logout</a>
+  </div>
+  {% endif %}
+</header>
+
+<main class="main">
+{% if not logged_in %}
+<div class="login">
+  <h1>SPLIT YOUR<br><em>MUSIC</em><br>BY VIBE.</h1>
+  <p>Connect Spotify. Last.fm tags every track, AI groups by real vibe — works for any genre, any taste.</p>
+  <a href="/login" class="btn btn-g" style="padding:13px 36px;font-size:13px;">Connect Spotify</a>
+  <div style="font-size:10px;color:var(--muted);letter-spacing:.5px;">Hourly sync · Weekly recluster · Tag cache · Multi-source · Inbox</div>
+</div>
+{% else %}
+
+<!-- NAV TABS -->
+<div class="nav" id="main-nav">
+  <button class="nav-tab active" onclick="showTab('configure')" id="tab-configure">Configure</button>
+  <button class="nav-tab" onclick="showTab('preview')" id="tab-preview" style="display:none">Review Vibes</button>
+  <button class="nav-tab" onclick="showTab('ensemble')" id="tab-ensemble" style="display:none">Ensemble</button>
+  <button class="nav-tab" onclick="showTab('playlists')" id="tab-playlists" style="display:none">Playlists</button>
+  <button class="nav-tab" onclick="showTab('inbox')" id="tab-inbox">Inbox <span class="badge-pill" id="inbox-badge" style="display:none">0</span></button>
+  <button class="nav-tab" onclick="showTab('stats')" id="tab-stats">Stats</button>
+</div>
+
+<div id="sbar-wrap"></div>
+<div id="drift-banner" style="display:none;background:var(--amber);color:#000;padding:10px 16px;font-family:'DM Mono',monospace;font-size:12px;text-align:center;cursor:pointer;" onclick="runPreview()">
+  ⚠ Cluster drift detected — click to recluster your library
+</div>
+
+<!-- ── TAB: CONFIGURE ── -->
+<div id="tab-configure-content">
+  <div class="stitle">Configure</div>
+  <div class="ssub">Choose your sources and how broad or detailed you want the split. You can always drill deeper into any vibe afterwards.</div>
+
+  <div class="card">
+    <div class="ctitle">Sources — select any combination</div>
+
+    <!-- Liked Songs toggle -->
+    <div class="fg">
+      <label class="ro" id="ro-liked" style="margin-bottom:8px;" onclick="toggleLiked()">
+        <input type="checkbox" id="cb-liked" style="accent-color:var(--green)"> Liked Songs
+      </label>
+    </div>
+
+    <!-- Playlist multi-select -->
+    <div class="fg">
+      <label class="fl">Add Playlists</label>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <select class="fsel" id="pl-sel" style="flex:1;"></select>
+        <button class="btn" onclick="addPlaylistSource()" style="flex-shrink:0;">+ Add</button>
+      </div>
+      <div class="source-chips" id="source-chips"></div>
+    </div>
+
+    <div class="divider" style="margin:14px 0 10px;"></div>
+
+    <!-- From Cache -->
+    <div class="ctitle" style="margin-bottom:6px;">
+      From Cache
+      <span id="cache-total-badge" style="font-size:10px;color:var(--green);margin-left:8px;font-family:'DM Mono',monospace;"></span>
+    </div>
+    <div style="font-size:11px;color:var(--muted2);margin-bottom:10px;line-height:1.7;">
+      Use tracks that are <b style="color:var(--text)">already tagged</b> — skips Spotify fetch entirely, clusters instantly.
+    </div>
+    <div id="cache-sources-list" style="display:flex;flex-direction:column;gap:6px;">
+      <div style="font-size:11px;color:var(--muted);">Loading...</div>
+    </div>
+    <div id="cache-chips" class="source-chips" style="margin-top:8px;"></div>
+
+    <!-- NEW: Granularity slider -->
+    <div class="fg">
+      <label class="fl">Granularity (broad ↔ detailed)</label>
+      <input type="range" id="granularity" min="1" max="10" value="5" class="fsel">
+      <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--muted2);">
+        <span>Few broad vibes</span><span>Many detailed vibes</span>
+      </div>
+    </div>
+
+    <!-- NEW: Extra features checkboxes -->
+    <div class="rg" style="margin-bottom:12px;">
+      <label class="ro" style="flex:0 1 auto;">
+        <input type="checkbox" id="include-year"> Include release year
+      </label>
+      <label class="ro" style="flex:0 1 auto;">
+        <input type="checkbox" id="include-popularity"> Include popularity
+      </label>
+    </div>
+
+    <!-- LLM Guidance checkbox -->
+    <div class="rg" style="margin-bottom:12px;">
+      <label class="ro" style="flex:0 1 auto;">
+        <input type="checkbox" id="use-llm-guidance"> Use AI to suggest vibe categories
+      </label>
+    </div>
+
+    <!-- Info -->
+    <div class="fg" style="margin-top:12px;">
+      <div style="font-size:11px;color:var(--muted);line-height:1.7;">
+        AI auto-detects the right number of playlists based on your library size.
+        You can <b style="color:var(--text)">Split</b> any vibe to go deeper, or <b style="color:var(--text)">Merge</b> to combine.
+      </div>
+    </div>
+
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <button class="btn btn-g" onclick="runPreview()" style="padding:11px 28px;font-size:13px;" id="btn-detect">Detect My Vibes</button>
+    <div id="source-summary" style="font-size:11px;color:var(--muted);"></div>
+  </div>
+</div>
+
+<!-- ── TAB: PREVIEW ── -->
+<div id="tab-preview-content" style="display:none;">
+  <div class="flex jb ac" style="margin-bottom:12px;">
+    <div>
+      <div class="stitle">Pick Your Vibes</div>
+      <div style="font-size:12px;color:var(--muted2);">We detected these vibe types in your library — tick the ones you want as playlists</div>
+    </div>
+    <div class="flex gap-8 ac">
+      <button class="btn" onclick="showTab('configure')">Back</button>
+      <button class="btn btn-g" onclick="doConfirmSelected()" id="btn-confirm-sel" style="padding:10px 24px;" disabled>
+        Create <span id="sel-count">0</span> Playlists
+      </button>
+    </div>
+  </div>
+  <div class="flex gap-8 ac" style="margin-bottom:10px;flex-wrap:wrap;">
+    <button class="btn btn-sm" onclick="selectAll()">Select All</button>
+    <button class="btn btn-sm" onclick="selectNone()">None</button>
+    <div style="width:1px;height:20px;background:var(--border);margin:0 4px;"></div>
+    <button class="btn btn-sm" id="btn-merge-mode" onclick="toggleMergeMode()">Merge Mode</button>
+    <span id="merge-hint" style="font-size:11px;color:var(--muted);display:none;">Select 2+ cards to merge them</span>
+    <button class="btn btn-g btn-sm" id="btn-do-merge" style="display:none;" onclick="doMerge()">Merge Selected</button>
+  </div>
+  <div id="auto-k-info" style="font-size:11px;color:var(--muted);margin-bottom:14px;padding:8px 12px;background:var(--s1);border:1px solid var(--border);display:none;"></div>
+  <div id="vibe-grid" class="g3" style="margin-bottom:20px;"></div>
+</div>
+
+<!-- ── TAB: ENSEMBLE (optional) ── -->
+<div id="tab-ensemble-content" style="display:none;">
+  <div class="stitle">Choose a Clustering</div>
+  <div style="font-size:12px;color:var(--muted2);margin-bottom:20px;">
+    We ran three different algorithms. Pick the one that feels most natural — you can still split/merge later.
+  </div>
+  <div id="ensemble-grid" class="g3">
+    <!-- populated by JavaScript -->
+  </div>
+  <div style="margin-top:20px;">
+    <button class="btn" onclick="showTab('configure')">Back</button>
+    <button class="btn btn-g" onclick="useEnsembleSelection()" style="margin-left:12px;">Use This Clustering</button>
+  </div>
+</div>
+
+<!-- ── TAB: PLAYLISTS ── -->
+<div id="tab-playlists-content" style="display:none;">
+  <div class="flex jb ac" style="margin-bottom:20px;">
+    <div><div class="stitle">Live Playlists</div>
+      <div style="font-size:12px;color:var(--muted2);">On Spotify · auto-updating hourly</div></div>
+    <div class="flex gap-8">
+      <button class="btn btn-sm" onclick="doHourly()">Sync Now</button>
+      <button class="btn btn-sm" onclick="cleanupPlaylists()" title="Remove playlists deleted from Spotify">Cleanup</button>
+      <button class="btn btn-og btn-sm" onclick="showTab('configure')">Recluster</button>
+    </div>
+  </div>
+  <div id="pl-grid" class="g3" style="margin-bottom:22px;"></div>
+  <div class="divider"></div>
+  <div class="g2">
+    <div class="card">
+      <div class="ctitle">Scheduler</div>
+      <div class="srow"><div><div>Hourly Update</div><div style="font-size:10px;color:var(--muted);">New tracks → Inbox</div></div><span class="badge badge-g">Active</span></div>
+      <div class="srow"><div><div>Weekly Recluster</div><div style="font-size:10px;color:var(--muted);">Full Last.fm re-tag</div></div><span class="badge badge-g">Active</span></div>
+      <div id="ltimes" style="margin-top:12px;font-size:11px;color:var(--muted);line-height:2.4;"></div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+        <div class="ctitle" style="margin-bottom:8px;">Tag Cache</div>
+        <div id="cache-info" style="font-size:11px;color:var(--muted2);margin-bottom:8px;line-height:2;"></div>
+        <button class="btn btn-sm btn-red" onclick="clearCache()">Clear Cache</button>
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+        <div class="ctitle" style="margin-bottom:8px;">Spotify Token</div>
+        <div id="token-info" style="font-size:11px;color:var(--muted2);margin-bottom:8px;line-height:2;"></div>
+        <button class="btn btn-sm btn-red" onclick="wipeToken()">Force Re-login</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ctitle">Activity Log</div>
+      <ul id="loglist" class="loglist"><li style="color:var(--muted);">No activity yet...</li></ul>
+    </div>
+  </div>
+</div>
+
+<!-- ── TAB: INBOX ── -->
+<div id="tab-inbox-content" style="display:none;">
+  <div class="flex jb ac" style="margin-bottom:20px;">
+    <div><div class="stitle">Inbox</div>
+      <div style="font-size:12px;color:var(--muted2);">New liked songs waiting to be sorted</div></div>
+    <div class="flex gap-8">
+      <button class="btn btn-g btn-sm" onclick="approveAll()" id="btn-approve-all">Approve All</button>
+      <button class="btn btn-sm" onclick="dismissAll()">Dismiss All</button>
+    </div>
+  </div>
+  <div id="inbox-empty" class="note" style="display:none;">
+    Inbox is empty — new liked songs will appear here after the hourly sync.
+  </div>
+  <div id="inbox-list"></div>
+</div>
+
+<!-- ── TAB: STATS ── -->
+<div id="tab-stats-content" style="display:none;">
+  <div class="stitle" style="margin-bottom:20px;">Your Library Stats</div>
+  <div id="stats-content">
+    <div style="font-size:12px;color:var(--muted);text-align:center;padding:40px;">Loading stats...</div>
+  </div>
+</div>
+
+{% endif %}
+</main>
+
+<script>
+{% if logged_in %}
+let S={}, PD={}, userPlaylists=[], selectedSources=[], statsLoaded=false;
+let ensembleResults = null; // store ensemble clusterings
+
+document.addEventListener("DOMContentLoaded",async()=>{
+  await loadUserPlaylists();
+  await loadCacheSources();
+  await sync();
+  setInterval(sync,7000);
+});
+
+// ── DATA ──────────────────────────────────────────────────────────────────────
+async function loadUserPlaylists(){
+  try {
+    const res = await fetch("/api/playlists");
+    if(res.status === 401){
+      document.getElementById("sbar-wrap").innerHTML =
+        `<div class="sbar" style="background:rgba(232,64,64,.07);border-color:rgba(232,64,64,.25)">
+          <div class="si"><div class="sd" style="background:var(--red)"></div>
+            Session expired — <a href="/login" style="color:var(--green)">click to re-login</a></div>
+        </div>`;
+      return;
+    }
+    userPlaylists = await res.json();
+    if(!Array.isArray(userPlaylists)){ userPlaylists=[]; return; }
+    const sel = document.getElementById("pl-sel");
+    sel.innerHTML = userPlaylists.map(p=>`<option value="${p.id}" data-name="${p.name}">${p.name} (${p.tracks})</option>`).join("");
+  } catch(e){ console.warn("loadUserPlaylists failed:", e); userPlaylists=[]; }
+}
+
+async function sync(){
+  S = await fetch("/api/state").then(r=>r.json());
+
+  // Restore sources UI
+  if(S.sources?.length){
+    const hasLiked = S.sources.some(s=>s.type==="liked");
+    document.getElementById("cb-liked").checked = hasLiked;
+    document.getElementById("ro-liked").classList.toggle("active", hasLiked);
+    const plSources = S.sources.filter(s=>s.type==="playlist");
+    if(plSources.length && selectedSources.length===0){
+      selectedSources = plSources;
+      renderSourceChips();
+    }
+  }
+
+  // Status bar
+  const livePls = Object.values(S.playlists||{}).filter(p=>p.spotify_id);
+  const plTotal = livePls.reduce((a,p)=>a+(p.track_ids||[]).length,0);
+  document.getElementById("sbar-wrap").innerHTML=`
+    <div class="sbar">
+      <div class="si"><div class="sd on"></div>Spotify connected</div>
+      <div class="si"><div class="sd ${S.sources?.length?'on':''}"></div>
+        ${S.sources?.length||0} source(s)</div>
+      <div class="si"><div class="sd ${livePls.length?'on':''}"></div>
+        ${livePls.length} playlists · ${plTotal} tracks</div>
+      <div class="si"><div class="sd ${(S.inbox||[]).length?'warn':'on'}"></div>
+        Inbox: ${(S.inbox||[]).length}</div>
+    </div>`;
+
+  // Inbox badge
+  const inboxCount = (S.inbox||[]).length;
+  const badge = document.getElementById("inbox-badge");
+  badge.style.display = inboxCount > 0 ? "inline-flex" : "none";
+  badge.textContent = inboxCount;
+
+  // Drift warning banner
+  const driftBanner = document.getElementById("drift-banner");
+  if(S.drift_warning){
+    driftBanner.style.display = "block";
+    if(S.drift_warning === "auto_recluster"){
+      driftBanner.textContent = "⚠ High cluster drift — automatic recluster recommended. Click to start.";
+      driftBanner.style.background = "var(--red)";
+      driftBanner.style.color = "#fff";
+    } else {
+      driftBanner.textContent = "⚠ Cluster drift detected — click to recluster your library";
+      driftBanner.style.background = "var(--amber)";
+      driftBanner.style.color = "#000";
+    }
+  } else {
+    driftBanner.style.display = "none";
+  }
+
+  // Logs
+  const ll = document.getElementById("loglist");
+  if(S.logs?.length) ll.innerHTML = S.logs.map(l=>`<li>${l}</li>`).join("");
+
+  // Last times
+  const lt = document.getElementById("ltimes");
+  if(lt) lt.innerHTML=`
+    <div>Last sync: ${S.last_hourly?new Date(S.last_hourly).toLocaleString('nl-NL'):"—"}</div>
+    <div>Last recluster: ${S.last_weekly?new Date(S.last_weekly).toLocaleString('nl-NL'):"—"}</div>`;
+
+  // Cache info
+  fetch("/api/cache-stats").then(r=>r.json()).then(d=>{
+    const el=document.getElementById("cache-info");
+    if(el) el.innerHTML=`<div>Cached: <b style="color:var(--text)">${d.cached_tracks}</b> tracks</div><div>Size: <b style="color:var(--text)">${d.cache_size_kb} KB</b></div>`;
+  });
+  fetch("/api/token-info").then(r=>r.json()).then(d=>{
+    const el=document.getElementById("token-info");
+    if(!el) return;
+    const hasWrite = (d.scope||"").includes("playlist-modify");
+    el.innerHTML=`<div>User: <b style="color:var(--text)">${d.user||"—"}</b></div>
+      <div>Write access: <b style="color:${hasWrite?'var(--green)':'var(--red)'}">${hasWrite?"granted":"MISSING — click Force Re-login"}</b></div>`;
+  }).catch(()=>{});
+
+  // Show tabs based on state
+  if(S.last_weekly && Object.keys(S.playlists||{}).length>0){
+    document.getElementById("tab-playlists").style.display="";
+    renderPlaylists();
+  }
+  if(S.preview){
+    PD = S.preview;
+    document.getElementById("tab-preview").style.display="";
+  }
+
+  // Render inbox if on that tab
+  if(document.getElementById("tab-inbox-content").style.display !== "none") renderInbox();
+}
+
+// ── TABS ──────────────────────────────────────────────────────────────────────
+function showTab(name){
+  const tabs=["configure","preview","ensemble","playlists","inbox","stats"];
+  tabs.forEach(t=>{
+    document.getElementById(`tab-${t}-content`).style.display = t===name?"block":"none";
+    document.getElementById(`tab-${t}`).classList.toggle("active", t===name);
+  });
+  if(name==="stats") loadStats();
+  if(name==="inbox") renderInbox();
+  if(name==="ensemble" && !ensembleResults) loadEnsemble();
+}
+
+// ── ENSEMBLE ─────────────────────────────────────────────────────────────────
+async function loadEnsemble(){
+  const sources = buildSources();
+  if(!sources.length){ alert("Select sources first!"); return; }
+  showOv("Running ensemble...");
+  const res = await fetch("/api/preview-ensemble",{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({sources})
+  });
+  const data = await res.json();
+  hideOv();
+  ensembleResults = data;
+  renderEnsemble(data);
+}
+
+function renderEnsemble(data){
+  const grid = document.getElementById("ensemble-grid");
+  let html = "";
+  for(let [name, clusters] of Object.entries(data)){
+    if(clusters.error){
+      html += `<div class="card"><div class="ctitle">${name}</div><div class="vdesc">Error: ${clusters.error}</div></div>`;
+      continue;
+    }
+    let clusterHtml = clusters.map(c => `
+      <div style="margin-bottom:8px;">
+        <span style="font-size:12px; font-weight:bold;">${c.size} tracks</span>
+        <div class="tags">${c.top_tags.slice(0,5).map(t=>`<span class="tag">${t}</span>`).join('')}</div>
+      </div>
+    `).join('');
+    html += `<div class="card" onclick="selectEnsemble('${name}')" style="cursor:pointer;" data-name="${name}">
+      <div class="ctitle">${name.toUpperCase()}</div>
+      ${clusterHtml}
+    </div>`;
+  }
+  grid.innerHTML = html;
+}
+
+let selectedEnsemble = null;
+function selectEnsemble(name){
+  selectedEnsemble = name;
+  document.querySelectorAll("#ensemble-grid .card").forEach(c => c.classList.remove("selected"));
+  event.currentTarget.classList.add("selected");
+}
+
+function useEnsembleSelection(){
+  if(!selectedEnsemble){ alert("Select a clustering first."); return; }
+  // In a real implementation, you would fetch the full clustering for that method
+  // and set PD = that result. For now, we just show a toast.
+  showToast(`Ensemble clustering '${selectedEnsemble}' chosen – but full preview not implemented.`);
+}
+
+// ── SOURCE MANAGEMENT ────────────────────────────────────────────────────────
+function toggleLiked(){
+  const cb = document.getElementById("cb-liked");
+  setTimeout(()=>{
+    document.getElementById("ro-liked").classList.toggle("active", cb.checked);
+    updateSourceSummary();
+  },0);
+}
+
+function addPlaylistSource(){
+  const sel = document.getElementById("pl-sel");
+  const id   = sel.value;
+  const name = sel.options[sel.selectedIndex]?.getAttribute("data-name") || sel.options[sel.selectedIndex]?.text;
+  if(!id || selectedSources.find(s=>s.id===id)) return;
+  selectedSources.push({type:"playlist", id, name});
+  renderSourceChips();
+  updateSourceSummary();
+}
+
+function removeSource(id){
+  selectedSources = selectedSources.filter(s=>s.id!==id);
+  renderSourceChips();
+  updateSourceSummary();
+}
+
+function renderSourceChips(){
+  document.getElementById("source-chips").innerHTML =
+    selectedSources.map(s=>`
+      <div class="chip active">
+        ${s.name}
+        <span class="chip-x" onclick="removeSource('${s.id}')">x</span>
+      </div>`).join("");
+}
+
+function buildSources(){
+  const sources = [];
+  if(document.getElementById("cb-liked").checked)
+    sources.push({type:"liked", id:null, name:"Liked Songs"});
+  sources.push(...selectedSources);
+  for(const cs of selectedCacheSources){
+    if(cs.type==="cache_all") sources.push({type:"cache_all", id:"cache_all", name:cs.name});
+    else sources.push({type:"cache_playlist", id:cs.id, name:cs.name, track_ids:cs.track_ids||[], spotify_id:cs.spotify_id||null});
+  }
+  return sources;
+}
+
+// ── PREVIEW ──────────────────────────────────────────────────────────────────
+async function runPreview(){
+  const sources = buildSources();
+  if(!sources.length){ alert("Select at least one source!"); return; }
+
+  const granularity = document.getElementById('granularity').value;
+  const includeYear = document.getElementById('include-year').checked;
+  const includePopularity = document.getElementById('include-popularity').checked;
+
+  const btn = document.getElementById("btn-detect");
+  if(btn){ btn.disabled=true; btn.textContent="Detecting..."; }
+  const restore = ()=>{ if(btn){ btn.disabled=false; btn.textContent="Detect My Vibes"; } };
+
+  showOv("Detecting Vibes");
+  setStep("load","active");
+  startOvPoll();
+
+  const res = await fetch("/api/preview",{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({
+      sources,
+      granularity: parseInt(granularity),
+      include_year: includeYear,
+      include_popularity: includePopularity
+    })
+  });
+
+  const useLlmGuidance = document.getElementById('use-llm-guidance').checked;
+
+  // in fetch body:
+  body: JSON.stringify({
+    sources,
+    granularity: parseInt(granularity),
+    include_year: includeYear,
+    include_popularity: includePopularity,
+    use_llm_guidance: useLlmGuidance
+  })
+
+  const d = await res.json();
+  if(d.error){ hideOvError(d.error); restore(); return; }
+
+  await new Promise((resolve, reject) => {
+    const check = setInterval(async () => {
+      try {
+        const s = await fetch("/api/state").then(r=>r.json());
+        const latest = s.logs?.[0] || "";
+        if(latest.includes("DONE:")) { clearInterval(check); resolve(s); }
+        if(latest.includes("Error:")) { clearInterval(check); reject(new Error(latest.replace(/\[.*?\]\s*/,""))); }
+      } catch(e) { /* keep polling */ }
+    }, 1000);
+    setTimeout(() => { clearInterval(check); reject(new Error("Timeout after 15 minutes")); }, 900000);
+  }).then(async (s) => {
+    hideOv(); restore();
+    if(!s.preview){ alert("No preview data — check terminal for errors"); return; }
+    PD = s.preview;
+    document.getElementById("tab-preview").style.display="";
+    renderVibes(PD);
+    showTab("preview");
+  }).catch(err => {
+    hideOvError(err.message); restore();
+  });
+}
+
+let selectedVibes = new Set();
+let mergeMode      = false;
+let mergeSelected  = new Set();
+
+function healthClass(h){ return h>=70?"high":h>=45?"mid":"low"; }
+function healthLabel(h){ return h>=70?"Tight":h>=45?"Mixed":"Spread"; }
+
+function updateSelCount(){
+  const n = selectedVibes.size;
+  document.getElementById("sel-count").textContent = n;
+  document.getElementById("btn-confirm-sel").disabled = n === 0;
+}
+
+function toggleVibe(id){
+  if(mergeMode){ toggleMergeCard(id); return; }
+  if(selectedVibes.has(id)){
+    selectedVibes.delete(id);
+    document.getElementById(`vc-${id}`)?.classList.remove("selected");
+    const box = document.getElementById(`vc-sel-${id}`);
+    if(box) box.textContent="";
+  } else {
+    selectedVibes.add(id);
+    document.getElementById(`vc-${id}`)?.classList.add("selected");
+    const box = document.getElementById(`vc-sel-${id}`);
+    if(box) box.textContent="x";
+  }
+  updateSelCount();
+}
+
+function selectAll(){
+  Object.keys(PD).forEach(id=>{
+    selectedVibes.add(id);
+    document.getElementById(`vc-${id}`)?.classList.add("selected");
+    const box = document.getElementById(`vc-sel-${id}`);
+    if(box) box.textContent="x";
+  });
+  updateSelCount();
+}
+
+function selectNone(){
+  selectedVibes.clear();
+  Object.keys(PD).forEach(id=>{
+    document.getElementById(`vc-${id}`)?.classList.remove("selected");
+    const box = document.getElementById(`vc-sel-${id}`);
+    if(box) box.textContent="";
+  });
+  updateSelCount();
+}
+
+// ── MERGE MODE ────────────────────────────────────────────────────────────────
+function toggleMergeMode(){
+  mergeMode = !mergeMode;
+  mergeSelected.clear();
+  const btn  = document.getElementById("btn-merge-mode");
+  const hint = document.getElementById("merge-hint");
+  const doBtn= document.getElementById("btn-do-merge");
+  btn.classList.toggle("btn-og", mergeMode);
+  hint.style.display  = mergeMode ? "inline" : "none";
+  doBtn.style.display = "none";
+  Object.keys(PD).forEach(id=>{
+    document.getElementById(`vc-${id}`)?.classList.remove("merge-selected");
+  });
+}
+
+function toggleMergeCard(id){
+  if(mergeSelected.has(id)){
+    mergeSelected.delete(id);
+    document.getElementById(`vc-${id}`)?.classList.remove("merge-selected");
+    const box = document.getElementById(`vc-sel-${id}`);
+    if(box) box.textContent="";
+  } else {
+    mergeSelected.add(id);
+    document.getElementById(`vc-${id}`)?.classList.add("merge-selected");
+    const box = document.getElementById(`vc-sel-${id}`);
+    if(box) box.textContent="+";
+  }
+  document.getElementById("btn-do-merge").style.display =
+    mergeSelected.size >= 2 ? "inline-flex" : "none";
+}
+
+async function doMerge(){
+  if(mergeSelected.size < 2){ alert("Select at least 2 vibes to merge"); return; }
+  showOv("Merging vibes...");
+  const res = await fetch("/api/merge",{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({keys: Array.from(mergeSelected)})});
+  hideOv();
+  const d = await res.json();
+  if(!d.ok){ alert("Merge failed: "+(d.error||"unknown")); return; }
+  d.removed_keys.forEach(k=>delete PD[k]);
+  PD[d.new_key] = d.cluster;
+  selectedVibes = new Set([...selectedVibes].filter(k=>!d.removed_keys.includes(k)));
+  mergeSelected.clear();
+  toggleMergeMode();
+  renderVibes(PD);
+  showToast(`Merged into '${d.cluster.suggested_name}'`);
+}
+
+// ── SPLIT ─────────────────────────────────────────────────────────────────────
+async function splitVibe(id, event){
+  event.stopPropagation();
+  const btn = document.getElementById(`split-btn-${id}`);
+  btn.disabled=true; btn.textContent="splitting...";
+  showOv(`Splitting vibe into sub-vibes...`);
+  const res = await fetch("/api/split",{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({cluster_key: id})});
+  hideOv();
+  const d = await res.json();
+  if(!d.ok){ alert("Split failed: "+(d.error||"unknown")); btn.disabled=false; btn.textContent="Split"; return; }
+  delete PD[d.removed_key];
+  Object.assign(PD, d.children);
+  selectedVibes.delete(d.removed_key);
+  renderVibes(PD);
+  Object.keys(d.children).forEach(k=>toggleVibe(k));
+  showToast(`Split into ${Object.keys(d.children).length} sub-vibes!`);
+}
+
+function renderVibes(clusters){
+  const autoInfo = document.getElementById("auto-k-info");
+  if(autoInfo){
+    const n = Object.keys(clusters).length;
+    autoInfo.style.display="block";
+    autoInfo.innerHTML=`Auto-detected <b style="color:var(--text)">${n}</b> vibes in your library. Tick the ones you want as playlists. Use <b style="color:var(--text)">Split</b> to go deeper or <b style="color:var(--text)">Merge</b> to combine.`;
+  }
+
+  document.getElementById("vibe-grid").innerHTML =
+    Object.entries(clusters).map(([id,c],idx)=>{
+      const tags=(c.top_tags||[]).slice(0,8).map((t,i)=>`<span class="tag${i<3?' hot':''}">${t}</span>`).join("");
+      const ePct=Math.round((c.energy_score||0.5)*100);
+      const mPct=Math.round((c.mood_score||0.5)*100);
+      const eLbl=ePct>=60?"High":ePct>=40?"Mid":"Low";
+      const mLbl=mPct>=58?"Bright":mPct>=42?"Neutral":"Dark";
+      const mColor=mPct>=58?'var(--amber)':mPct>=42?'#888':'var(--blue)';
+      const h=c.health||0; const hc=healthClass(h); const hl=healthLabel(h);
+      const isChild = id.includes(".");
+      const canSplit = c.can_split !== false && !isChild;
+      const samp=(c.sample_tracks||[]).slice(0,5).map(t=>`
+        <div class="sample-row">
+          <span>${t.name} <span style="color:#333"> ${t.artist}</span></span>
+          <button class="btn btn-xs" onclick="event.stopPropagation();retagTrack('${t.id}','${id}')" title="Re-fetch tags">Re-tag</button>
+        </div>`).join("");
+
+      // Pinterest prompts
+      const prompts = (c.pinterest_prompts||[]);
+      const pinHtml = prompts.length ? `
+        <div class="pin-section" onclick="event.stopPropagation()">
+          <div class="pin-label">Pinterest Cover Search</div>
+          ${prompts.map((p,pi)=>`
+            <div class="pin-row">
+              <span class="pin-query">${p}</span>
+              <a href="https://pinterest.com/search/pins/?q=${encodeURIComponent(p)}" target="_blank" class="btn btn-xs pin-btn">Search →</a>
+            </div>`).join('')}
+        </div>` : '';
+
+      // AI name suggestions
+      const aiSugg = (c.ai_suggestions || []).map(s => `
+        <button class="btn btn-xs" style="border-color:var(--blue); color:var(--blue);"
+                onclick="event.stopPropagation(); document.getElementById('vn-${id}').value='${s.replace(/'/g,"\\'")}'">
+          ${s}
+        </button>
+      `).join('');
+
+      const aiHtml = aiSugg ? `
+        <div class="ai-suggestions" style="margin-top:6px; margin-bottom:8px; display:flex; gap:6px; flex-wrap:wrap;">
+          <span style="font-size:9px; color:var(--muted);">AI:</span>
+          ${aiSugg}
+        </div>
+      ` : '';
+
+      const alreadySel = selectedVibes.has(id);
+      return `<div class="vc${alreadySel?' selected':''}" id="vc-${id}" onclick="toggleVibe('${id}')" style="animation-delay:${idx*.05}s">
+        <div class="vc-top">
+          <div class="flex gap-8 ac">
+            ${isChild?`<span class="child-badge">SUB</span>`:``}
+            <span class="vc-num">VIBE ${id}</span>
+          </div>
+          <div class="flex gap-8 ac">
+            <span class="health ${hc}">${h}% ${hl}</span>
+            <span class="vc-cnt">${c.track_count} tracks</span>
+            <div class="vc-sel-box" id="vc-sel-${id}">${alreadySel?'':''}</div>
+          </div>
+        </div>
+        <input class="vname" id="vn-${id}" value="${c.suggested_name}"
+          placeholder="Name..." onclick="event.stopPropagation()">
+        ${aiHtml}
+        <div class="vdesc">${c.description}</div>
+        <div class="axes">
+          <div class="axis-row">
+            <span class="axis-lbl">Energy</span>
+            <div class="axis-bar"><div class="axis-fill" style="width:${ePct}%;background:var(--green)"></div></div>
+            <span class="axis-val">${eLbl}</span>
+          </div>
+          <div class="axis-row">
+            <span class="axis-lbl">Mood</span>
+            <div class="axis-bar"><div class="axis-fill" style="width:${mPct}%;background:${mColor}"></div></div>
+            <span class="axis-val">${mLbl}</span>
+          </div>
+        </div>
+        <div class="tags">${tags}</div>
+        <div class="samples">${samp}</div>
+        ${pinHtml}
+        <div style="display:flex;justify-content:flex-end;margin-top:10px;gap:6px;">
+          ${canSplit?`<button class="split-btn" id="split-btn-${id}" onclick="splitVibe('${id}',event)">Split</button>`:''}
+        </div>
+      </div>`;
+    }).join("");
+  updateSelCount();
+}
+
+// ── CONFIRM SELECTED VIBES ────────────────────────────────────────────────────
+async function doConfirmSelected(){
+  if(selectedVibes.size === 0){ alert("Select at least one vibe!"); return; }
+  const names={}, selected=Array.from(selectedVibes);
+  Object.keys(PD).forEach(id=>{
+    const el=document.getElementById(`vn-${id}`);
+    if(el) names[id]=el.value;
+  });
+  showOv(`Creating ${selected.length} Playlists`);
+  setStep("done","active","Creating playlists on Spotify...");
+  startOvPoll();
+  const res=await fetch("/api/confirm-selected",{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({selected, names})});
+  hideOv();
+  if((await res.json()).ok){
+    await sync();
+    document.getElementById("tab-playlists").style.display="";
+    showTab("playlists");
+  }
+}
+
+async function doConfirm(){ doConfirmSelected(); }
+
+// ── PLAYLISTS ─────────────────────────────────────────────────────────────────
+function renderPlaylists(){
+  const grid=document.getElementById("pl-grid");
+  grid.innerHTML=Object.entries(S.playlists||{}).map(([id,pl])=>{
+    const h=pl.health||0; const hc=healthClass(h);
+    const link=pl.spotify_id
+      ?`<a href="https://open.spotify.com/playlist/${pl.spotify_id}" target="_blank" class="badge badge-g">Open</a>`
+      :`<span class="badge">Pending</span>`;
+    const coverBtn=pl.spotify_id
+      ?`<button class="btn btn-xs" onclick="openCoverPicker('${id}','${pl.spotify_id}')" title="Pick cover image">Cover</button>`
+      :'';
+    return `<div class="plc">
+      <div class="flex jb ac" style="margin-bottom:8px;">
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1.5px;">CLUSTER ${parseInt(id)+1} · ${(pl.track_ids||[]).length} tracks</div>
+        <span class="health ${hc}" style="font-size:10px;">${h}%</span>
+      </div>
+      <input class="plname" value="${pl.name}" onblur="saveName(${id},this.value)">
+      <div style="display:flex;justify-content:flex-end;gap:6px;">${coverBtn}${link}</div>
+    </div>`;
+  }).join("");
+}
+
+// ── CLEANUP ──────────────────────────────────────────────────────────────────
+async function cleanupPlaylists(){
+  if(!confirm("Remove playlists from the tracker that no longer exist on Spotify?")) return;
+  showOv("Cleaning up...");
+  const res=await fetch("/api/cleanup-playlists",{method:"POST"});
+  hideOv();
+  const d=await res.json();
+  if(d.ok){
+    showToast(d.removed.length
+      ?`Removed ${d.removed.length} stale: ${d.removed.slice(0,3).join(", ")}`
+      :"No stale playlists found.");
+    await sync();
+  } else { showToast("Cleanup failed: "+(d.error||"?"), true); }
+}
+
+// ── COVER PICKER ─────────────────────────────────────────────────────────────
+let _coverPid=null, _coverCid=null, _coverUrl=null;
+
+async function openCoverPicker(cid, pid){
+  _coverPid=pid; _coverCid=cid; _coverUrl=null;
+  document.getElementById("cover-selected").style.display="none";
+  document.getElementById("cover-upload-status").style.display="none";
+  document.getElementById("cover-modal").style.display="flex";
+  document.getElementById("cover-grid").innerHTML=
+    `<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:32px;font-size:12px;">Fetching album art...</div>`;
+  try{
+    const res=await fetch(`/api/cover-search/${cid}`);
+    const d=await res.json();
+    if(!d.images||!d.images.length){
+      document.getElementById("cover-grid").innerHTML=
+        `<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:32px;font-size:12px;">No images found for this vibe.</div>`;
+      return;
+    }
+    document.getElementById("cover-grid").innerHTML=d.images.map(img=>`
+      <div onclick="selectCover('${img.url.replace(/'/g,"\\x27")}','${(img.album||'').replace(/'/g,"\\x27")}','${(img.artist||'').replace(/'/g,"\\x27")}')"
+        data-url="${img.url}"
+        style="cursor:pointer;aspect-ratio:1;overflow:hidden;border:2px solid transparent;transition:border-color .15s;"
+        onmouseover="this.style.borderColor='var(--green)'"
+        onmouseout="this.style.borderColor=(_coverUrl===this.dataset.url)?'var(--green)':'transparent'">
+        <img src="${img.url}" style="width:100%;height:100%;object-fit:cover;" loading="lazy" title="${img.artist} — ${img.album}">
+      </div>`).join("");
+  }catch(e){
+    document.getElementById("cover-grid").innerHTML=`<div style="grid-column:1/-1;color:var(--red);padding:24px;font-size:12px;">Error: ${e.message}</div>`;
+  }
+}
+
+function selectCover(url,album,artist){
+  _coverUrl=url;
+  document.querySelectorAll("#cover-grid>div").forEach(el=>{
+    el.style.borderColor=el.dataset.url===url?"var(--green)":"transparent";
+  });
+  document.getElementById("cover-preview-img").src=url;
+  document.getElementById("cover-preview-info").textContent=`${artist} — ${album}`;
+  document.getElementById("cover-selected").style.display="block";
+  document.getElementById("cover-upload-status").style.display="none";
+}
+
+async function uploadCover(){
+  if(!_coverUrl||!_coverPid) return;
+  const btn=document.getElementById("cover-upload-btn");
+  const st=document.getElementById("cover-upload-status");
+  btn.disabled=true; btn.textContent="Uploading...";
+  try{
+    const res=await fetch("/api/upload-cover",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({playlist_id:_coverPid,image_url:_coverUrl})});
+    const d=await res.json();
+    st.style.cssText="display:block;";
+    if(d.ok){ st.style.color="var(--green)"; st.textContent="Cover updated!"; showToast("Cover set!"); setTimeout(closeCoverModal,1500); }
+    else { st.style.color="var(--red)"; st.textContent="Error: "+(d.error||"Upload failed"); }
+  }catch(e){ st.style.cssText="display:block;color:var(--red);"; st.textContent="Error: "+e.message; }
+  btn.disabled=false; btn.textContent="Set as Playlist Cover";
+}
+
+function closeCoverModal(){
+  document.getElementById("cover-modal").style.display="none";
+  _coverPid=_coverCid=_coverUrl=null;
+}
+
+// ── CACHED SOURCES ────────────────────────────────────────────────────────────
+let cachedSources=[], selectedCacheSources=[];
+
+async function loadCacheSources(){
+  try{
+    const res=await fetch("/api/cache-sources");
+    if(!res.ok) return;
+    const d=await res.json();
+    cachedSources=d.sources||[];
+    const badge=document.getElementById("cache-total-badge");
+    if(badge) badge.textContent=`${d.total_cached} tracks cached`;
+    renderCacheSourceList();
+  }catch(e){ console.warn("loadCacheSources failed:", e); }
+}
+
+function renderCacheSourceList(){
+  const el=document.getElementById("cache-sources-list");
+  if(!el) return;
+  if(!cachedSources.length){
+    el.innerHTML=`<div style="font-size:11px;color:var(--muted);">No cache yet — run a detection first.</div>`;
+    return;
+  }
+  el.innerHTML=cachedSources.map(src=>{
+    const alreadySel=selectedCacheSources.find(s=>s.id===src.id);
+    const count=src.track_count!=null
+      ?`<span style="color:var(--green);font-size:10px;">${src.track_count} tracks</span>`
+      :`<span style="font-size:10px;color:var(--muted);">—</span>`;
+    const icon=src.type==="cache_all"?"[all]":src.id.startsWith("vibe_")?"[vibe]":"[src]";
+    return `<label class="ro${alreadySel?' active':''}" id="csl-${src.id}"
+        style="margin-bottom:0;justify-content:space-between;"
+        onclick="toggleCacheSource(${JSON.stringify(src).replace(/"/g,'&quot;')})">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" style="accent-color:var(--green);" ${alreadySel?'checked':''} onclick="event.stopPropagation()">
+        <div>
+          <div style="font-size:12px;">${src.name}</div>
+          <div style="font-size:10px;color:var(--muted2);">${src.description||''}</div>
+        </div>
+      </div>
+      ${count}
+    </label>`;
+  }).join("");
+}
+
+function toggleCacheSource(src){
+  const idx=selectedCacheSources.findIndex(s=>s.id===src.id);
+  if(idx>=0){ selectedCacheSources.splice(idx,1); }
+  else {
+    if(src.type==="cache_all"){ selectedCacheSources=[src]; }
+    else { selectedCacheSources=selectedCacheSources.filter(s=>s.type!=="cache_all"); selectedCacheSources.push(src); }
+  }
+  renderCacheSourceList(); renderCacheChips(); updateSourceSummary();
+}
+
+function removeCacheSource(id){
+  selectedCacheSources=selectedCacheSources.filter(s=>s.id!==id);
+  renderCacheSourceList(); renderCacheChips(); updateSourceSummary();
+}
+
+function renderCacheChips(){
+  const el=document.getElementById("cache-chips");
+  if(!el) return;
+  el.innerHTML=selectedCacheSources.map(s=>`
+    <div class="chip active" style="border-color:rgba(29,185,84,.4);background:rgba(29,185,84,.06);">
+      ${s.name}
+      <span class="chip-x" onclick="removeCacheSource('${s.id}')">x</span>
+    </div>`).join("");
+}
+
+function updateSourceSummary(){
+  const el=document.getElementById("source-summary");
+  if(!el) return;
+  const sources=buildSources();
+  if(!sources.length){ el.textContent=""; return; }
+  const hasCacheOnly=sources.every(s=>s.type.startsWith("cache"));
+  el.innerHTML=`<span style="color:var(--muted2);">Using: ${sources.map(s=>s.name).join(", ")}</span>`
+    +(hasCacheOnly?` <span style="color:var(--green);margin-left:6px;">Instant — no API calls</span>`:"");
+}
+
+async function doHourly(){
+  showOv("Running hourly sync...");
+  await fetch("/api/run-hourly",{method:"POST"});
+  hideOv(); await sync();
+}
+
+async function saveName(id,name){
+  await fetch("/api/update-name",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({cluster_id:id,name})});
+}
+
+// ── MANUAL OVERRIDE (in inbox + re-tag) ──────────────────────────────────────
+async function moveTrack(trackId, clusterKey){
+  await fetch("/api/override",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({track_id:trackId,cluster_key:clusterKey})});
+  await sync();
+}
+
+// ── RE-TAG ────────────────────────────────────────────────────────────────────
+async function retagTrack(trackId, clusterId){
+  const btn = event.target;
+  btn.disabled=true; btn.textContent="...";
+  const res = await fetch("/api/retag",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({track_id:trackId})});
+  const d = await res.json();
+  btn.disabled=false; btn.textContent="retry";
+  if(d.ok){
+    showToast(`Re-tagged! New tags: ${d.tags.slice(0,4).join(", ")}`);
+  } else {
+    showToast("Re-tag failed: "+d.error, true);
+  }
+}
+
+// ── INBOX ─────────────────────────────────────────────────────────────────────
+function renderInbox(){
+  const inbox = S.inbox||[];
+  const list  = document.getElementById("inbox-list");
+  const empty = document.getElementById("inbox-empty");
+
+  if(!inbox.length){
+    empty.style.display="block"; list.innerHTML=""; return;
+  }
+  empty.style.display="none";
+
+  const clusterOptions = Object.entries(S.playlists||{})
+    .map(([k,pl])=>`<option value="${k}">${pl.name}</option>`).join("");
+
+  list.innerHTML = inbox.map(t=>`
+    <div class="inbox-card" id="inbox-${t.id}">
+      <div class="inbox-track">
+        <div class="inbox-track-info">
+          <div class="inbox-track-name">${t.name}</div>
+          <div class="inbox-track-artist">${t.artist}</div>
+          <div class="inbox-tags">${(t.tags||[]).slice(0,5).map(tag=>`<span class="inbox-tag">${tag}</span>`).join("")}</div>
+        </div>
+        <select class="cluster-select" id="inbox-sel-${t.id}">
+          <option value="">— pick a vibe —</option>
+          ${clusterOptions}
+        </select>
+        <button class="btn btn-g btn-sm" onclick="approveTrack('${t.id}')">Approve</button>
+        <button class="btn btn-sm" onclick="dismissTrack('${t.id}')">Dismiss</button>
+      </div>
+    </div>`).join("");
+}
+
+async function approveTrack(tid){
+  const sel = document.getElementById(`inbox-sel-${tid}`);
+  if(!sel.value){ alert("Pick a vibe first!"); return; }
+  await fetch("/api/inbox/approve",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({approvals:[{track_id:tid,cluster_key:sel.value}]})});
+  await sync(); renderInbox();
+}
+
+async function approveAll(){
+  const inbox = S.inbox||[];
+  const approvals=[];
+  for(const t of inbox){
+    const sel=document.getElementById(`inbox-sel-${t.id}`);
+    if(sel?.value) approvals.push({track_id:t.id,cluster_key:sel.value});
+  }
+  if(!approvals.length){ alert("Select a vibe for each track first."); return; }
+  showOv("Approving tracks...");
+  await fetch("/api/inbox/approve",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({approvals})});
+  hideOv(); await sync(); renderInbox();
+}
+
+async function dismissTrack(tid){
+  await fetch("/api/inbox/dismiss",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({track_ids:[tid]})});
+  await sync(); renderInbox();
+}
+
+async function dismissAll(){
+  const tids=(S.inbox||[]).map(t=>t.id);
+  await fetch("/api/inbox/dismiss",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({track_ids:tids})});
+  await sync(); renderInbox();
+}
+
+// ── STATS ─────────────────────────────────────────────────────────────────────
+async function loadStats(){
+  if(statsLoaded) return;
+  const d = await fetch("/api/stats").then(r=>r.json());
+  if(!d.total_tracks){ document.getElementById("stats-content").innerHTML=
+    `<div class="note">No cached tracks yet — run an analysis first.</div>`; return; }
+
+  const maxTag = d.top_tags?.[0]?.[1]||1;
+  const tagBars = (d.top_tags||[]).slice(0,15).map(([tag,cnt])=>`
+    <div class="tag-bar-row">
+      <div class="tag-bar-name">${tag}</div>
+      <div class="tag-bar-track"><div class="tag-bar-fill" style="width:${Math.round(cnt/maxTag*100)}%"></div></div>
+      <div class="tag-bar-count">${cnt}</div>
+    </div>`).join("");
+
+  const totalE = Object.values(d.energy_dist||{}).reduce((a,b)=>a+b,0)||1;
+  const totalM = Object.values(d.mood_dist||{}).reduce((a,b)=>a+b,0)||1;
+
+  const energyDist = [["High","var(--green)"],["Mid","var(--amber)"],["Low","var(--blue)"]].map(([lbl,col])=>`
+    <div class="dist-row">
+      <div class="dist-label">${lbl}</div>
+      <div class="dist-bar"><div class="dist-fill" style="width:${Math.round((d.energy_dist?.[lbl]||0)/totalE*100)}%;background:${col}"></div></div>
+      <div class="dist-count">${d.energy_dist?.[lbl]||0}</div>
+    </div>`).join("");
+
+  const moodDist = [["Bright","var(--amber)"],["Neutral","#888"],["Dark","var(--blue)"]].map(([lbl,col])=>`
+    <div class="dist-row">
+      <div class="dist-label">${lbl}</div>
+      <div class="dist-bar"><div class="dist-fill" style="width:${Math.round((d.mood_dist?.[lbl]||0)/totalM*100)}%;background:${col}"></div></div>
+      <div class="dist-count">${d.mood_dist?.[lbl]||0}</div>
+    </div>`).join("");
+
+  document.getElementById("stats-content").innerHTML=`
+    <div class="g4" style="margin-bottom:20px;">
+      <div class="card" style="text-align:center;">
+        <div class="stat-big">${d.total_tracks}</div>
+        <div class="stat-label">Cached Tracks</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div class="stat-big">${(d.top_tags||[]).length}</div>
+        <div class="stat-label">Unique Tags</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div class="stat-big">${Math.round(d.avg_energy*100)}%</div>
+        <div class="stat-label">Avg Energy</div>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div class="stat-big">${Math.round(d.avg_mood*100)}%</div>
+        <div class="stat-label">Avg Mood</div>
+      </div>
+    </div>
+    <div class="g2">
+      <div class="card">
+        <div class="ctitle">Top Tags in Your Library</div>
+        ${tagBars}
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:12px;">
+          <div class="ctitle">Energy Distribution</div>
+          ${energyDist}
+        </div>
+        <div class="card">
+          <div class="ctitle">Mood Distribution</div>
+          ${moodDist}
+        </div>
+      </div>
+    </div>`;
+  statsLoaded=true;
+}
+
+// ── CACHE ─────────────────────────────────────────────────────────────────────
+async function clearCache(){
+  if(!confirm("Clear the tag cache? Next analysis will re-fetch all tracks from Last.fm.")) return;
+  await fetch("/api/clear-cache",{method:"POST"});
+  statsLoaded=false;
+  await sync();
+}
+
+async function wipeToken(){
+  if(!confirm("This will log you out and wipe all cached tokens. You'll need to log in again. Continue?")) return;
+  await fetch("/api/wipe-token",{method:"POST"});
+  window.location.href="/";
+}
+
+// ── UTILS ─────────────────────────────────────────────────────────────────────
+// ── OVERLAY STEP TRACKER ─────────────────────────────────────────────────────
+const OV_STEPS = ["load","cache","tag","cluster","done"];
+let ovPollTimer = null;
+
+function showOv(title="Processing..."){
+  document.getElementById("ov-title-text").textContent = title;
+  document.getElementById("ov-pbar").style.width = "0%";
+  document.getElementById("ov-log").textContent = "Starting...";
+  OV_STEPS.forEach(s=>{
+    const el = document.getElementById(`ovs-${s}`);
+    if(el) el.className = "ov-step";
+  });
+  document.getElementById("ov").classList.add("show");
+}
+
+function setOvMsg(m){
+  document.getElementById("ov-log").textContent = m;
+}
+
+function hideOv(){
+  if(ovPollTimer){ clearInterval(ovPollTimer); ovPollTimer=null; }
+  OV_STEPS.forEach(s=>{ const el=document.getElementById(`ovs-${s}`); if(el&&el.classList.contains("active")) setStep(s,"done"); });
+  document.getElementById("ov-pbar").style.width="100%";
+  setTimeout(()=>document.getElementById("ov").classList.remove("show"), 400);
+}
+
+function setStep(id, state, txt=null){
+  const el = document.getElementById(`ovs-${id}`);
+  if(!el) return;
+  el.className = `ov-step ${state}`;
+  if(txt) document.getElementById(`ovs-${id}-txt`).textContent = txt;
+  const idx = OV_STEPS.indexOf(id);
+  if(idx>=0){
+    const pct = state==="done" ? Math.round(((idx+1)/OV_STEPS.length)*100)
+                                : Math.round((idx/OV_STEPS.length)*100);
+    document.getElementById("ov-pbar").style.width = pct+"%";
+  }
+}
+
+function stepFromLog(logMsg){
+  const m = logMsg.toLowerCase();
+  if(m.includes("loading tracks") || m.includes("fetching tracks"))        return ["load","active"];
+  if(m.includes("cached") && m.includes("tracks"))            return ["load","done"];
+  if(m.includes("checking cache") || m.includes("cached"))        return ["cache","active"];
+  if(m.includes("all") && m.includes("cached"))               return ["cache","done","All tracks cached"];
+  if(m.includes("tagging") || m.includes("tagging") || m.includes("last.fm")) return ["tag","active"];
+  if(m.includes("cache updated") || m.includes("cache saved")){ return ["tag","done"]; }
+  if(m.includes("clustering") || m.includes("auto-detecting") || m.includes("building embeddings")) return ["cluster","active"];
+  if(m.includes("silhouette") || m.includes("k="))            return ["cluster","active"];
+  if(m.includes("vibes detected") || m.includes("vibes ready") || m.includes("complete")) return ["cluster","done"];
+  if(m.includes("creating playlists") || m.includes("creating playlists"))    return ["done","active"];
+  if(m.includes("playlists live") || m.includes("playlists created"))        return ["done","done"];
+  return null;
+}
+
+function startOvPoll(){
+  let lastLog = "";
+  ovPollTimer = setInterval(async()=>{
+    try{
+      const s = await fetch("/api/state").then(r=>r.json());
+      const latestLog = s.logs?.[0] || "";
+      if(latestLog !== lastLog){
+        lastLog = latestLog;
+        const clean = latestLog.replace(/\[.*?\]\s*/,"");
+        document.getElementById("ov-log").textContent = clean;
+        const step = stepFromLog(clean);
+        if(step) setStep(step[0], step[1], step[2]);
+        const tagMatch = clean.match(/tagging[:\s]+(\d+)\/(\d+)/i);
+        if(tagMatch){
+          const pct = Math.round(parseInt(tagMatch[1])/parseInt(tagMatch[2])*100);
+          document.getElementById("ovs-tag-txt").textContent = `Fetching Last.fm tags (${tagMatch[1]}/${tagMatch[2]} — ${pct}%)`;
+        }
+        const kMatch = clean.match(/testing up to k=(\d+)/i);
+        if(kMatch) document.getElementById("ovs-cluster-txt").textContent = `Auto-detecting vibes (silhouette, up to K=${kMatch[1]})`;
+      }
+    } catch(e){}
+  }, 800);
+}
+
+function hideOvError(msg){
+  if(ovPollTimer){ clearInterval(ovPollTimer); ovPollTimer=null; }
+  OV_STEPS.forEach(s=>{ const el=document.getElementById(`ovs-${s}`); if(el&&el.classList.contains("active")) setStep(s,"error"); });
+  document.getElementById("ov-log").textContent = "Error: "+msg;
+  document.getElementById("ov-pbar").style.background="var(--red)";
+  setTimeout(()=>{
+    document.getElementById("ov").classList.remove("show");
+    document.getElementById("ov-pbar").style.background="var(--green)";
+  }, 3000);
+}
+
+function showToast(msg, isErr=false){
+  const t=document.createElement("div");
+  t.textContent=msg;
+  Object.assign(t.style,{position:"fixed",bottom:"24px",right:"24px",padding:"10px 16px",
+    background:isErr?"var(--red)":"var(--green)",color:isErr?"#fff":"#000",
+    fontFamily:"'DM Mono',monospace",fontSize:"12px",zIndex:"999",
+    animation:"fadeUp .3s ease"});
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(),3000);
+}
+{% endif %}
+</script>
+</body>
+</html>
