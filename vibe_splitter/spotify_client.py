@@ -156,9 +156,13 @@ def fetch_tracks_from_source(sp, src, sm=None, state=None):
         except SpotifyException as e:
             elapsed = time.time() - t0
             if e.http_status == 429:
-                # Log Retry-After if available
                 retry_header = e.headers.get("Retry-After") if e.headers else None
                 retry_after = int(retry_header) if retry_header else backoff
+                # Cap wait at 120s — if Spotify says wait longer, abort instead
+                if retry_after > 120:
+                    log.error(f"[fetch] 429 Retry-After={retry_after}s (>{120}s cap) — aborting")
+                    _spotify_cb.record_failure()
+                    raise ConnectionError(f"Spotify rate limit too long: {retry_after}s. Try again later.")
                 wait = max(retry_after, backoff) + 1
                 log.warning(f"[fetch] 429 page={_page} — Retry-After: {retry_header}, waiting {wait}s (backoff={backoff})")
                 if sm and state:
@@ -289,8 +293,11 @@ def fetch_audio_features(sp, track_ids, sm=None, state=None):
         except SpotifyException as e:
             if e.http_status == 429:
                 retry_header = e.headers.get("Retry-After") if e.headers else None
-                wait = int(retry_header) if retry_header else backoff
-                wait = max(wait, backoff) + 1
+                retry_after = int(retry_header) if retry_header else backoff
+                if retry_after > 120:
+                    log.error(f"audio_features batch {i}: 429 Retry-After={retry_after}s — skipping remaining")
+                    break
+                wait = max(retry_after, backoff) + 1
                 log.warning(f"audio_features batch {i}: 429 — waiting {wait}s")
                 if sm and state:
                     sm.add_log(state, f"Audio features rate limited — waiting {wait}s...")
