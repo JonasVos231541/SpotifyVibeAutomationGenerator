@@ -6,16 +6,17 @@ Entry points:
   - ``split_cluster``    — hierarchical sub-split
   - ``compute_health``   — cohesion + separation metric
 """
-import pickle, logging, random
+import json, logging, random
 import numpy as np
 from collections import Counter
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.cluster import KMeans
 
 from . import config
-from .embeddings import build_embeddings, build_hybrid_vectors
+from .embeddings import build_embeddings, build_hybrid_vectors, AUDIO_FEATURE_KEYS
 from .naming import score_axis, energy_band, mood_band, name_all_clusters, generate_vibe_categories
 from .spotify_client import fetch_audio_features
+from .events import publish as sse_publish
 
 log = logging.getLogger("splitter.clustering")
 
@@ -126,6 +127,7 @@ def build_cluster_dict(records, labels, embeddings=None, key_prefix="",
             "sample_tracks":     [{"name": r["name"], "artist": r["artist"], "id": r["id"]}
                                   for r in sub[:6]],
             "track_ids":         [r["id"] for r in sub],
+            "track_uris":        [r.get("uri", f"spotify:track:{r['id']}") for r in sub],
             "parent":            key_prefix.rstrip(".") if key_prefix else None,
             "can_split":         len(sub) >= 6,
         }
@@ -251,12 +253,14 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
     if sm and state:
         sm.add_log(state, f"Building embeddings for {n_tracks} tracks...")
         sm.save(state)
+    sse_publish("progress", {"step": "embedding", "pct": 10})
 
     X_embed = build_embeddings(records)
+    sse_publish("progress", {"step": "embedding", "pct": 30})
 
-    # Audio features (optional)
+    # Audio features (only fetch when weight > 0)
     audio_feats = None
-    if sp is not None:
+    if sp is not None and config.AUDIO_WEIGHT > 0:
         try:
             if sm and state:
                 sm.add_log(state, "Fetching audio features..."); sm.save(state)
@@ -265,9 +269,11 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
             log.warning(f"Audio features failed: {e}")
 
     # Build hybrid vectors with possible extra features
-    X = build_hybrid_vectors(X_embed, records, audio_feats, extra_features=extra_features)
+    X, audio_stats = build_hybrid_vectors(X_embed, records, audio_feats,
+                                          extra_features=extra_features)
     log.info(f"Hybrid vectors: {X.shape}")
 
+    sse_publish("progress", {"step": "hybrid_vectors", "pct": 45})
     if sm and state:
         sm.add_log(state, f"Clustering ~{expected_k} vibes..."); sm.save(state)
 
@@ -305,6 +311,15 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
                 })
             cat_embeddings = build_embeddings(cat_records)
 
+            # Pad category embeddings to match hybrid vector dimensions
+            # (build_embeddings returns 384-d, but X may be 384+N after audio/extra fusion)
+            if cat_embeddings.shape[1] < X.shape[1]:
+                pad_width = X.shape[1] - cat_embeddings.shape[1]
+                cat_embeddings = np.hstack([
+                    cat_embeddings,
+                    np.zeros((cat_embeddings.shape[0], pad_width))
+                ])
+
             # Use these as initial centroids for KMeans
             n_cats = len(categories)
             # Adjust expected_k to the number of categories
@@ -312,7 +327,7 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
             min_cs = max(6, min(40, n_tracks // (expected_k * 3)))
 
             # Run KMeans with these centroids as init
-            kmeans = KMeans(n_clusters=n_cats, init=cat_embeddings, n_init=1, max_iter=300, random_state=42)
+            kmeans = KMeans(n_clusters=n_cats, init=cat_embeddings, n_init=3, max_iter=500, random_state=42)
             raw_labels = kmeans.fit_predict(X)
             used_llm = True
         else:
@@ -327,7 +342,7 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
         import hdbscan
         clusterer = hdbscan.HDBSCAN(
             min_cluster_size=min_cs, min_samples=3,
-            metric="euclidean", cluster_selection_method="eom",
+            metric="cosine", cluster_selection_method="eom",
         )
         raw_labels = clusterer.fit_predict(X)
         unique = set(raw_labels)
@@ -360,43 +375,99 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
         # already have labels from KMeans with LLM seeds
         labels = list(raw_labels)
 
+    sse_publish("progress", {"step": "clustering", "pct": 70})
+
     # Apply must‑link overrides
     if overrides:
         labels = _apply_overrides(labels, records, overrides)
 
     # Persist centroid stats for incremental classification / drift detection
+    # Build label→index mapping once (avoids repeated O(n) scans)
+    label_groups = {}
+    for i, lbl in enumerate(labels):
+        label_groups.setdefault(lbl, []).append(i)
+
     centroids_save = {}
+    semantic_centroids = {}
     centroid_stats = {}
-    for lbl in set(labels):
-        mask = [i for i, l in enumerate(labels) if l == lbl]
+    for lbl, mask in label_groups.items():
         X_sub = X[mask]
         centroid = X_sub.mean(axis=0)
         centroids_save[lbl] = centroid
+        # Also save semantic-only centroids for fallback classification
+        semantic_centroids[lbl] = X_embed[mask].mean(axis=0)
         dists = 1.0 - cosine_similarity(X_sub, centroid.reshape(1, -1)).flatten()
         centroid_stats[lbl] = {
             "mean_dist": float(np.mean(dists)),
             "std_dist":  float(np.std(dists)),
             "count":     len(mask),
         }
-    with open(config.MODEL_FILE, "wb") as f:
-        pickle.dump({
-            "type": "hybrid_embeddings",
-            "centroids": centroids_save,
-            "centroid_stats": centroid_stats,
-            "audio_weight": config.AUDIO_WEIGHT if audio_feats else 0.0,
-            "embed_dim": X_embed.shape[1],
-        }, f)
+    # Save model as npz (arrays) + json (metadata) — no pickle
+    _save_arrays = {}
+    for lbl, c in centroids_save.items():
+        _save_arrays[f"centroid_{lbl}"] = np.asarray(c)
+    for lbl, c in semantic_centroids.items():
+        _save_arrays[f"sem_centroid_{lbl}"] = np.asarray(c)
+    np.savez(config.MODEL_FILE, **_save_arrays)
 
+    _meta = {
+        "version": 3,
+        "type": "hybrid_embeddings",
+        "centroid_keys": [str(k) for k in centroids_save.keys()],
+        "centroid_stats": {str(k): v for k, v in centroid_stats.items()},
+        "audio_weight": config.AUDIO_WEIGHT if audio_feats else 0.0,
+        "audio_stats": {str(k): v for k, v in (audio_stats or {}).items()},
+        "audio_feature_keys": list(AUDIO_FEATURE_KEYS),
+        "embed_dim": int(X_embed.shape[1]),
+        "hybrid_dim": int(X.shape[1]),
+        "has_audio": bool(audio_feats),
+        "has_extra": extra_features is not None,
+        "hdbscan_metric": "cosine",
+    }
+    with open(config.MODEL_META_FILE, "w") as f:
+        json.dump(_meta, f, indent=2)
+
+    sse_publish("progress", {"step": "model_saved", "pct": 80})
     if sm and state:
         sm.add_log(state, "Refining clusters by cohesion..."); sm.save(state)
     labels = _enforce_cohesion(records, labels, X, max_fraction=max_frac)
 
-    # Recompute centroids after splits
-    final_centroids = {}
-    for lbl in set(labels):
-        mask = [i for i, l in enumerate(labels) if l == lbl]
-        final_centroids[lbl] = X[mask].mean(axis=0)
+    # Merge tiny clusters (< 10 tracks) into nearest larger neighbor
+    MIN_CLUSTER = 10
+    labels = list(labels)
+    merge_rounds = 0
+    while merge_rounds < 20:
+        # Build label→index mapping once per round
+        groups = {}
+        for i, lbl in enumerate(labels):
+            groups.setdefault(lbl, []).append(i)
+        tiny  = [(lbl, idxs) for lbl, idxs in groups.items() if len(idxs) < MIN_CLUSTER]
+        large = {lbl: idxs for lbl, idxs in groups.items() if len(idxs) >= MIN_CLUSTER}
+        if not tiny or not large:
+            break
+        large_centroids = {lbl: X[idxs].mean(axis=0) for lbl, idxs in large.items()}
+        c_labels = sorted(large_centroids.keys())
+        c_matrix = np.array([large_centroids[l] for l in c_labels])
+        merged_any = False
+        for t_lbl, t_idxs in tiny:
+            t_centroid = X[t_idxs].mean(axis=0).reshape(1, -1)
+            sims = cosine_similarity(t_centroid, c_matrix)[0]
+            nearest = c_labels[np.argmax(sims)]
+            for i in t_idxs:
+                labels[i] = nearest
+            log.info(f"  Merged tiny cluster {t_lbl} ({len(t_idxs)} tracks) → {nearest}")
+            merged_any = True
+        if not merged_any:
+            break
+        merge_rounds += 1
 
+    # Recompute centroids after splits + merges
+    final_groups = {}
+    for i, lbl in enumerate(labels):
+        final_groups.setdefault(lbl, []).append(i)
+    final_centroids = {lbl: X[idxs].mean(axis=0) for lbl, idxs in final_groups.items()}
+
+    sse_publish("progress", {"step": "finalizing", "pct": 95})
     final_k = len(set(labels))
     sizes = sorted(Counter(labels).values(), reverse=True)
     log.info(f"[cluster] Final: {final_k} playlists, sizes: {sizes}")

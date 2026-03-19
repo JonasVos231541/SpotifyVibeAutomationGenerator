@@ -8,11 +8,11 @@ Handles:
   - Approving inbox items with duplicate-track prevention
 """
 import os, time, logging
+from datetime import datetime
 from . import config
 from . import cache as cache_mod
 from .spotify_client import create_playlist_me
 from .incremental import classify_new_tracks
-import pickle
 
 log = logging.getLogger("splitter.playlists")
 
@@ -25,6 +25,12 @@ def push_playlists(sp, sm, state, clusters, confirmed_names):
         name   = confirmed_names.get(key) or c["suggested_name"]
         health = c.get("health", 50)
         track_ids = c.get("track_ids", [])
+
+        # Compute diff before updating
+        prev_ids = set(state.get("playlists", {}).get(key, {}).get("track_ids", []))
+        new_ids  = set(track_ids)
+        added    = new_ids - prev_ids
+        removed  = prev_ids - new_ids
         uris = []
         for tid in track_ids:
             entry = _cache.get(tid)
@@ -51,6 +57,14 @@ def push_playlists(sp, sm, state, clusters, confirmed_names):
         state["playlists"][key]["name"]      = name
         state["playlists"][key]["track_ids"] = track_ids
         state["playlists"][key]["health"]    = health
+        state["playlists"][key]["last_push"] = {
+            "timestamp":     datetime.now().isoformat(),
+            "added_count":   len(added),
+            "removed_count": len(removed),
+            "added_ids":     list(added)[:50],
+            "removed_ids":   list(removed)[:50],
+            "total":         len(track_ids),
+        }
 
 
 def push_to_inbox(sp, sm, state, new_records):

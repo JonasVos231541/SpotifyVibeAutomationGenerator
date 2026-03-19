@@ -116,8 +116,20 @@ Return ONLY the category names, one per line, with no numbering or extra text.""
             text = resp.json().get("response", "")
             # Split lines and clean
             categories = [line.strip().strip('"').strip() for line in text.split('\n') if line.strip()]
-            # Limit to max_cats
-            categories = categories[:max_cats]
+            # Filter junk: preamble, numbered prefixes, too-short/long lines
+            import re as _re
+            cleaned = []
+            for c in categories:
+                c = _re.sub(r'^\d+[.)\-]\s*', '', c).strip()
+                c = c.strip('*').strip()
+                if not c or len(c) < 3 or len(c) > 40:
+                    continue
+                skip = ['here are', 'based on', 'categories', 'distinct vibe',
+                        'vibe category', 'tracks with', 'sample of', 'the following']
+                if any(p in c.lower() for p in skip):
+                    continue
+                cleaned.append(c)
+            categories = cleaned[:max_cats]
             if len(categories) < min_cats:
                 # If Llama returned too few, pad with generic ones
                 categories.extend(["Mixed Vibes", "Energy Boost", "Chill Out"][:min_cats - len(categories)])

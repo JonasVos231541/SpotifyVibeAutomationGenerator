@@ -6,20 +6,24 @@ environment variables with sensible defaults.  Tag vocabularies and genre
 rules are loaded from external JSON files in the ``config/`` directory so
 they can be edited without touching code.
 """
-import json, os, logging
+import json, os, logging, secrets as _secrets
 from datetime import datetime
 
 log = logging.getLogger("splitter.config")
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
-_CONFIG_DIR = os.path.join(os.path.dirname(__file__), "config")
+_CONFIG_DIR  = os.path.join(os.path.dirname(__file__), "config")
+_PROJECT_DIR = os.path.join(os.path.dirname(__file__), "..")
 
 STATE_FILE = os.getenv("VS_STATE_FILE", "splitter_state.json")
-MODEL_FILE = os.getenv("VS_MODEL_FILE", "splitter_model.pkl")
+MODEL_FILE      = os.getenv("VS_MODEL_FILE", "splitter_model.npz")
+MODEL_META_FILE = os.getenv("VS_MODEL_META_FILE", "splitter_model_meta.json")
+_LEGACY_PKL     = "splitter_model.pkl"
 CACHE_FILE = os.getenv("VS_CACHE_FILE", "track_cache.json")
 
 # ─── Secrets ──────────────────────────────────────────────────────────────────
-SPOTIFY_CLIENT_ID     = os.getenv("SPOTIFY_CLIENT_ID",     "a6bf501625094fb883515e5fe1644a1f")
+_DEFAULT_SPOTIFY_ID = "a6bf501625094fb883515e5fe1644a1f"
+SPOTIFY_CLIENT_ID     = os.getenv("SPOTIFY_CLIENT_ID",     _DEFAULT_SPOTIFY_ID)
 SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "dfd2ae8d1c0d46a0b11f0f3ba3fd5e7a")
 SPOTIFY_REDIRECT_URI  = os.getenv("SPOTIFY_REDIRECT_URI",  "http://127.0.0.1:5000/callback")
 SPOTIFY_SCOPE         = os.getenv("SPOTIFY_SCOPE",
@@ -28,10 +32,37 @@ SPOTIFY_SCOPE         = os.getenv("SPOTIFY_SCOPE",
     "ugc-image-upload"
 )
 
+if SPOTIFY_CLIENT_ID == _DEFAULT_SPOTIFY_ID:
+    log.warning("Using default Spotify credentials — set SPOTIFY_CLIENT_ID and "
+                "SPOTIFY_CLIENT_SECRET env vars for production use")
+
+SPOTIFY_CACHE_PATH = os.getenv("SPOTIPY_CACHE_PATH", ".spotify_cache")
+
 LASTFM_API_KEY = os.getenv("LASTFM_API_KEY", "7ff67730e8779cc77d664cae9ecb21c5")
 LASTFM_BASE    = os.getenv("LASTFM_BASE",    "https://ws.audioscrobbler.com/2.0/")
 
-SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "vibe-splitter-v3-2026")
+# Flask secret key — auto-generate and persist if not configured
+def _get_secret_key():
+    env_key = os.getenv("FLASK_SECRET_KEY")
+    if env_key:
+        return env_key
+    secret_file = os.path.join(_PROJECT_DIR, ".flask_secret")
+    if os.path.exists(secret_file):
+        try:
+            with open(secret_file) as f:
+                return f.read().strip()
+        except OSError:
+            pass
+    key = _secrets.token_hex(32)
+    try:
+        with open(secret_file, "w") as f:
+            f.write(key)
+        log.info("Generated new Flask secret key (saved to .flask_secret)")
+    except OSError:
+        log.warning("Could not persist Flask secret key — sessions won't survive restarts")
+    return key
+
+SECRET_KEY = _get_secret_key()
 
 # ─── Ollama (AI naming & guidance) ───────────────────────────────────────────
 OLLAMA_URL      = os.getenv("OLLAMA_URL",      "http://localhost:11434/api/generate")
@@ -49,7 +80,23 @@ DRIFT_SIGMA         = float(os.getenv("VS_DRIFT_SIGMA",         "2.0"))
 RECLUSTER_DRIFT_THRESHOLD = float(os.getenv("VS_RECLUSTER_DRIFT_THRESHOLD", "0.20"))
 AUTO_ASSIGN_THRESHOLD = float(os.getenv("VS_AUTO_ASSIGN_THRESHOLD", "0.90"))
 AUTO_RECLUSTER_DRIFT  = float(os.getenv("VS_AUTO_RECLUSTER_DRIFT", "0.50"))
+CONFIDENCE_TEMPERATURE = float(os.getenv("VS_CONFIDENCE_TEMPERATURE", "0.15"))
+ADAPTIVE_MARGIN_SCALE  = float(os.getenv("VS_ADAPTIVE_MARGIN_SCALE",  "0.05"))
 LASTFM_RATE_DELAY   = float(os.getenv("VS_LASTFM_RATE_DELAY",  "0.26"))
+MODEL_STALE_DAYS    = int(os.getenv("VS_MODEL_STALE_DAYS",     "30"))
+MODEL_TRACK_DRIFT_PCT = float(os.getenv("VS_MODEL_TRACK_DRIFT_PCT", "0.25"))
+
+# ─── Audio feature importance weights (applied after Z-scoring) ──────────────
+AUDIO_IMPORTANCE = {
+    "danceability": 1.2, "energy": 1.3, "valence": 1.1,
+    "acousticness": 0.8, "instrumentalness": 0.9, "tempo": 0.7,
+    "speechiness": 0.6, "mode": 0.5, "liveness": 0.4, "loudness": 0.8,
+}
+
+# ─── ReccoBeats (free Spotify audio_features replacement) ─────────────────
+RECCOBEATS_BASE     = os.getenv("VS_RECCOBEATS_BASE", "https://api.reccobeats.com/v1")
+RECCOBEATS_BATCH    = int(os.getenv("VS_RECCOBEATS_BATCH", "5"))
+RECCOBEATS_DELAY    = float(os.getenv("VS_RECCOBEATS_DELAY", "0.6"))
 TOP_N_TAGS          = int(os.getenv("VS_TOP_N_TAGS",            "100"))
 MIN_TAG_DF          = int(os.getenv("VS_MIN_TAG_DF",            "2"))
 
@@ -59,8 +106,8 @@ GRANULARITY_MAX     = int(os.getenv("VS_GRANULARITY_MAX",       "10"))
 GRANULARITY_DEFAULT = int(os.getenv("VS_GRANULARITY_DEFAULT",   "5"))
 
 # ─── Extra features (year, popularity) ────────────────────────────────────────
-ENABLE_YEAR_FEATURE     = os.getenv("VS_ENABLE_YEAR_FEATURE",     "false").lower() == "true"
-ENABLE_POPULARITY_FEATURE = os.getenv("VS_ENABLE_POPULARITY_FEATURE", "false").lower() == "true"
+ENABLE_YEAR_FEATURE     = os.getenv("VS_ENABLE_YEAR_FEATURE",     "true").lower() == "true"
+ENABLE_POPULARITY_FEATURE = os.getenv("VS_ENABLE_POPULARITY_FEATURE", "true").lower() == "true"
 YEAR_MIN                = int(os.getenv("VS_YEAR_MIN",           "1960"))
 YEAR_MAX                = int(os.getenv("VS_YEAR_MAX",           str(datetime.now().year)))
 

@@ -1,0 +1,33 @@
+# Secrets
+.flask_secret
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Spotify cache
+.spotify_cache
+
+# Database
+vibe_splitter.db
+vibe_splitter.db-wal
+vibe_splitter.db-shm
+
+# Model artifacts
+splitter_model.pkl
+splitter_model.npz
+splitter_model_meta.json
+
+# Logs
+vibe_splitter.log
+vibe_splitter.log.*
+
+# State / cache files
+splitter_state.json
+track_cache.json
+
+# IDE
+.vscode/
+.idea/

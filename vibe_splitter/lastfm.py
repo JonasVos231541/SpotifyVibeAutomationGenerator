@@ -9,8 +9,12 @@ Strategy per track:
 import time, logging, requests as req
 from . import config
 from . import cache as cache_mod
+from .events import publish as sse_publish
 
 log = logging.getLogger("splitter.lastfm")
+
+# Reuse HTTP connections for Last.fm API calls (keep-alive)
+_session = req.Session()
 
 
 def _api_call(params, max_retries=3):
@@ -18,7 +22,7 @@ def _api_call(params, max_retries=3):
     backoff = 0.5
     for attempt in range(max_retries):
         try:
-            r = req.get(config.LASTFM_BASE, params=params, timeout=8)
+            r = _session.get(config.LASTFM_BASE, params=params, timeout=8)
             if r.status_code == 429:
                 retry_after = int(r.headers.get("Retry-After", backoff))
                 wait = max(retry_after, backoff)
@@ -139,6 +143,8 @@ def build_vectors(tracks, sm, state, cb=None, sp=None):
         if cb and i % 25 == 0:
             pct = round((i / total_new) * 100)
             cb(state, f"Tagging {i+1}/{total_new} ({pct}%)...")
+            sse_publish("progress", {"step": "tagging", "pct": pct,
+                                     "current": i + 1, "total": total_new})
         time.sleep(config.LASTFM_RATE_DELAY)
 
     if total_new > 0:

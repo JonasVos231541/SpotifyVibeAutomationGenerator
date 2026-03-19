@@ -1,0 +1,29 @@
+# Data files (live on persistent volume, not in image)
+*.db
+*.db-wal
+*.db-shm
+*.pkl
+*.npz
+splitter_state.json
+splitter_model_meta.json
+track_cache.json
+vibe_splitter.log*
+
+# Secrets
+.flask_secret
+.env
+.spotify_cache
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE / OS
+.vscode/
+.idea/
+.git/
+*.md
+
+# Fly.io
+fly.toml

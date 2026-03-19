@@ -52,6 +52,18 @@ def clear():
             log.info("Cache cleared")
 
 
+def prune(active_ids):
+    """Remove cached tracks not in *active_ids*.  Returns count removed."""
+    cache = load()
+    before = len(cache)
+    pruned = {tid: entry for tid, entry in cache.items() if tid in active_ids}
+    removed = before - len(pruned)
+    if removed > 0:
+        save(pruned)
+        log.info(f"Pruned {removed} stale tracks from cache")
+    return removed
+
+
 def size_kb():
     """Return on-disk size in KB."""
     try:

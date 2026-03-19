@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Vibe Splitter</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23080808'/%3E%3Crect x='4' y='12' width='3' height='8' rx='1.5' fill='%231DB954'%3E%3Canimate attributeName='height' values='8;16;8' dur='1s' repeatCount='indefinite'/%3E%3Canimate attributeName='y' values='12;8;12' dur='1s' repeatCount='indefinite'/%3E%3C/rect%3E%3Crect x='10' y='8' width='3' height='16' rx='1.5' fill='%231DB954'%3E%3Canimate attributeName='height' values='16;8;16' dur='1s' repeatCount='indefinite'/%3E%3Canimate attributeName='y' values='8;12;8' dur='1s' repeatCount='indefinite'/%3E%3C/rect%3E%3Crect x='16' y='10' width='3' height='12' rx='1.5' fill='%231DB954'%3E%3Canimate attributeName='height' values='12;18;12' dur='1s' repeatCount='indefinite'/%3E%3Canimate attributeName='y' values='10;7;10' dur='1s' repeatCount='indefinite'/%3E%3C/rect%3E%3Crect x='22' y='11' width='3' height='10' rx='1.5' fill='%231DB954'%3E%3Canimate attributeName='height' values='10;14;10' dur='1s' repeatCount='indefinite'/%3E%3Canimate attributeName='y' values='11;9;11' dur='1s' repeatCount='indefinite'/%3E%3C/rect%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#080808;--s1:#0f0f0f;--s2:#161616;--s3:#1e1e1e;--border:#1f1f1f;--border2:#2a2a2a;
@@ -280,6 +281,43 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
 .login h1{font-family:'Bebas Neue',sans-serif;font-size:80px;line-height:.88;letter-spacing:4px;}
 .login h1 em{color:var(--green);font-style:normal;}
 .login p{color:var(--muted2);font-size:13px;max-width:360px;line-height:1.9;}
+
+/* TOAST NOTIFICATIONS */
+.toast-container{position:fixed;bottom:20px;right:20px;z-index:10000;display:flex;flex-direction:column-reverse;gap:8px;max-width:380px;}
+.toast{padding:12px 16px;border:1px solid var(--border2);background:var(--s2);color:var(--text);
+  font-size:11px;line-height:1.6;animation:fadeUp .25s;display:flex;align-items:flex-start;gap:10px;
+  max-height:200px;overflow-y:auto;word-break:break-word;}
+.toast-close{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;
+  padding:0 0 0 8px;line-height:1;flex-shrink:0;}
+.toast-close:hover{color:var(--text);}
+.toast.success{border-color:rgba(29,185,84,.4);}
+.toast.error{border-color:rgba(232,64,64,.4);}
+.toast.warning{border-color:rgba(240,165,0,.4);}
+.toast.info{border-color:rgba(106,143,255,.4);}
+
+/* RESPONSIVE */
+@media(max-width:1024px){
+  .main{padding:20px 24px;}
+  .hdr{padding:14px 24px;}
+  .g3{grid-template-columns:1fr 1fr;}
+  .g4{grid-template-columns:1fr 1fr 1fr;}
+}
+@media(max-width:768px){
+  .main{padding:16px 14px;}
+  .hdr{padding:12px 14px;}
+  .g3,.g2,.g4{grid-template-columns:1fr;}
+  .nav{flex-wrap:wrap;gap:0;}
+  .nav-tab{padding:10px 14px;font-size:10px;}
+  .login h1{font-size:48px;}
+  .stitle{font-size:20px;}
+  .flex.jb{flex-direction:column;gap:10px;align-items:flex-start;}
+}
+@media(max-width:480px){
+  .hdr{padding:10px 10px;}
+  .main{padding:12px 8px;}
+  .btn{padding:6px 12px;font-size:11px;}
+  .card{padding:14px;}
+}
 </style>
 </head>
 <body>
@@ -368,22 +406,33 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
 {% else %}
 
 <!-- NAV TABS -->
-<div class="nav" id="main-nav">
-  <button class="nav-tab active" onclick="showTab('configure')" id="tab-configure">Configure</button>
-  <button class="nav-tab" onclick="showTab('preview')" id="tab-preview" style="display:none">Review Vibes</button>
-  <button class="nav-tab" onclick="showTab('ensemble')" id="tab-ensemble" style="display:none">Ensemble</button>
-  <button class="nav-tab" onclick="showTab('playlists')" id="tab-playlists" style="display:none">Playlists</button>
-  <button class="nav-tab" onclick="showTab('inbox')" id="tab-inbox">Inbox <span class="badge-pill" id="inbox-badge" style="display:none">0</span></button>
-  <button class="nav-tab" onclick="showTab('stats')" id="tab-stats">Stats</button>
-</div>
+<nav class="nav" id="main-nav" role="tablist" aria-label="Main navigation">
+  <button class="nav-tab active" onclick="showTab('configure')" id="tab-configure" role="tab" aria-selected="true" aria-controls="tab-configure-content">Configure</button>
+  <button class="nav-tab" onclick="showTab('preview')" id="tab-preview" role="tab" aria-selected="false" aria-controls="tab-preview-content" style="display:none">Review Vibes</button>
+  <button class="nav-tab" onclick="showTab('ensemble')" id="tab-ensemble" role="tab" aria-selected="false" aria-controls="tab-ensemble-content" style="display:none">Ensemble</button>
+  <button class="nav-tab" onclick="showTab('playlists')" id="tab-playlists" role="tab" aria-selected="false" aria-controls="tab-playlists-content" style="display:none">Playlists</button>
+  <button class="nav-tab" onclick="showTab('inbox')" id="tab-inbox" role="tab" aria-selected="false" aria-controls="tab-inbox-content">Inbox <span class="badge-pill" id="inbox-badge" style="display:none">0</span></button>
+  <button class="nav-tab" onclick="showTab('stats')" id="tab-stats" role="tab" aria-selected="false" aria-controls="tab-stats-content">Stats</button>
+</nav>
 
 <div id="sbar-wrap"></div>
-<div id="drift-banner" style="display:none;background:var(--amber);color:#000;padding:10px 16px;font-family:'DM Mono',monospace;font-size:12px;text-align:center;cursor:pointer;" onclick="runPreview()">
-  ⚠ Cluster drift detected — click to recluster your library
+<div id="drift-banner" role="alert" style="display:none;background:var(--amber);color:#000;padding:10px 16px;font-family:'DM Mono',monospace;font-size:12px;text-align:center;cursor:pointer;" onclick="runPreview()">
+  Cluster drift detected — click to recluster your library
 </div>
+<div id="sr-status" aria-live="polite" class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);"></div>
 
 <!-- ── TAB: CONFIGURE ── -->
-<div id="tab-configure-content">
+<div id="tab-configure-content" role="tabpanel">
+  <div id="onboard-tip" style="display:none;background:rgba(29,185,84,.08);border:1px solid rgba(29,185,84,.25);
+    padding:14px 18px;margin-bottom:16px;font-size:12px;line-height:1.8;color:var(--muted2);position:relative;">
+    <b style="color:var(--green);">Getting started:</b>
+    1. Select your music sources below (Liked Songs or playlists).
+    2. Adjust the vibe count slider.
+    3. Click <b style="color:var(--text);">Detect Vibes</b> to auto-cluster your library.
+    4. Review, rename, split or merge vibes, then confirm to create Spotify playlists.
+    <button onclick="dismissOnboard()" style="position:absolute;top:8px;right:12px;background:none;border:none;
+      color:var(--muted);cursor:pointer;font-size:16px;" aria-label="Dismiss tip">&times;</button>
+  </div>
   <div class="stitle">Configure</div>
   <div class="ssub">Choose your sources and how broad or detailed you want the split. You can always drill deeper into any vibe afterwards.</div>
 
@@ -472,6 +521,9 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
     </div>
     <div class="flex gap-8 ac">
       <button class="btn" onclick="showTab('configure')">Back</button>
+      <label class="ro" style="flex:0;padding:8px 12px;margin:0;font-size:11px;" title="When checked, tracks from unselected vibes get sorted into the nearest selected vibe. When unchecked, only tracks naturally in selected vibes are included.">
+        <input type="checkbox" id="cb-redistribute" style="accent-color:var(--amber);"> Include unselected tracks
+      </label>
       <button class="btn btn-g" onclick="doConfirmSelected()" id="btn-confirm-sel" style="padding:10px 24px;" disabled>
         Create <span id="sel-count">0</span> Playlists
       </button>
@@ -512,6 +564,8 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
     <div class="flex gap-8">
       <button class="btn btn-sm" onclick="doHourly()">Sync Now</button>
       <button class="btn btn-sm" onclick="cleanupPlaylists()" title="Remove playlists deleted from Spotify">Cleanup</button>
+      <button class="btn btn-sm" onclick="checkDuplicates()" title="Find tracks in multiple playlists">Duplicates</button>
+      <button class="btn btn-sm" onclick="showOverrides()" title="View manual overrides">Overrides</button>
       <button class="btn btn-og btn-sm" onclick="showTab('configure')">Recluster</button>
     </div>
   </div>
@@ -551,6 +605,10 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
       <button class="btn btn-sm" onclick="dismissAll()">Dismiss All</button>
     </div>
   </div>
+  <input type="text" id="inbox-search" placeholder="Search inbox by name or artist..."
+    oninput="renderInbox()"
+    style="width:100%;padding:8px 12px;margin-bottom:14px;background:var(--s2);border:1px solid var(--border2);
+           color:var(--text);font-family:'DM Mono',monospace;font-size:12px;display:none;">
   <div id="inbox-empty" class="note" style="display:none;">
     Inbox is empty — new liked songs will appear here after the hourly sync.
   </div>
@@ -573,12 +631,52 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
 let S={}, PD={}, userPlaylists=[], selectedSources=[], statsLoaded=false;
 let ensembleResults = null; // store ensemble clusterings
 
+// XSS-safe HTML escaping for user/API data
+function esc(s){ if(!s) return ""; const d=document.createElement("div"); d.textContent=String(s); return d.innerHTML; }
+
 document.addEventListener("DOMContentLoaded",async()=>{
   await loadUserPlaylists();
   await loadCacheSources();
   await sync();
-  setInterval(sync,7000);
+  // Use SSE for real-time updates, fallback to polling
+  if(typeof EventSource !== "undefined"){
+    const es = new EventSource("/api/events");
+    es.addEventListener("log", ()=>{ sync(); });
+    es.addEventListener("state_change", ()=>{ sync(); });
+    es.addEventListener("progress", (e)=>{
+      try{ const d=JSON.parse(e.data); if(d.pct!=null) updateProgress(d); }catch(ex){}
+    });
+    es.onerror = ()=>{
+      // Fallback to polling on SSE failure
+      es.close();
+      setInterval(sync, 7000);
+    };
+    // Still poll occasionally as safety net (every 30s instead of 7s)
+    setInterval(sync, 30000);
+  } else {
+    setInterval(sync, 7000);
+  }
 });
+
+function updateProgress(d){
+  // Update progress UI from SSE progress event
+  const bar = document.getElementById("progress-fill");
+  if(bar && d.pct != null) bar.style.width = d.pct + "%";
+  // Update screen reader status
+  const sr = document.getElementById("sr-status");
+  if(sr && d.step) sr.textContent = d.step + " " + (d.pct||0) + "%";
+}
+
+// Onboarding tip (first-visit)
+if(!localStorage.getItem("vs_onboard_dismissed")){
+  const tip = document.getElementById("onboard-tip");
+  if(tip) tip.style.display = "block";
+}
+function dismissOnboard(){
+  localStorage.setItem("vs_onboard_dismissed","1");
+  const tip = document.getElementById("onboard-tip");
+  if(tip) tip.style.display = "none";
+}
 
 // ── DATA ──────────────────────────────────────────────────────────────────────
 async function loadUserPlaylists(){
@@ -595,7 +693,7 @@ async function loadUserPlaylists(){
     userPlaylists = await res.json();
     if(!Array.isArray(userPlaylists)){ userPlaylists=[]; return; }
     const sel = document.getElementById("pl-sel");
-    sel.innerHTML = userPlaylists.map(p=>`<option value="${p.id}" data-name="${p.name}">${p.name} (${p.tracks})</option>`).join("");
+    sel.innerHTML = userPlaylists.map(p=>`<option value="${esc(p.id)}" data-name="${esc(p.name)}">${esc(p.name)} (${p.tracks})</option>`).join("");
   } catch(e){ console.warn("loadUserPlaylists failed:", e); userPlaylists=[]; }
 }
 
@@ -693,7 +791,9 @@ function showTab(name){
   const tabs=["configure","preview","ensemble","playlists","inbox","stats"];
   tabs.forEach(t=>{
     document.getElementById(`tab-${t}-content`).style.display = t===name?"block":"none";
-    document.getElementById(`tab-${t}`).classList.toggle("active", t===name);
+    const tabBtn = document.getElementById(`tab-${t}`);
+    tabBtn.classList.toggle("active", t===name);
+    tabBtn.setAttribute("aria-selected", t===name?"true":"false");
   });
   if(name==="stats") loadStats();
   if(name==="inbox") renderInbox();
@@ -703,7 +803,7 @@ function showTab(name){
 // ── ENSEMBLE ─────────────────────────────────────────────────────────────────
 async function loadEnsemble(){
   const sources = buildSources();
-  if(!sources.length){ alert("Select sources first!"); return; }
+  if(!sources.length){ showToast("Select sources first!"); return; }
   showOv("Running ensemble...");
   const res = await fetch("/api/preview-ensemble",{
     method:"POST", headers:{"Content-Type":"application/json"},
@@ -745,7 +845,7 @@ function selectEnsemble(name){
 }
 
 function useEnsembleSelection(){
-  if(!selectedEnsemble){ alert("Select a clustering first."); return; }
+  if(!selectedEnsemble){ showToast("Select a clustering first."); return; }
   // In a real implementation, you would fetch the full clustering for that method
   // and set PD = that result. For now, we just show a toast.
   showToast(`Ensemble clustering '${selectedEnsemble}' chosen – but full preview not implemented.`);
@@ -800,7 +900,7 @@ function buildSources(){
 // ── PREVIEW ──────────────────────────────────────────────────────────────────
 async function runPreview(){
   const sources = buildSources();
-  if(!sources.length){ alert("Select at least one source!"); return; }
+  if(!sources.length){ showToast("Select at least one source!"); return; }
 
   const granularity = document.getElementById('granularity').value;
   const includeYear = document.getElementById('include-year').checked;
@@ -814,26 +914,17 @@ async function runPreview(){
   setStep("load","active");
   startOvPoll();
 
+  const useLlmGuidance = document.getElementById('use-llm-guidance').checked;
   const res = await fetch("/api/preview",{
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({
       sources,
       granularity: parseInt(granularity),
       include_year: includeYear,
-      include_popularity: includePopularity
+      include_popularity: includePopularity,
+      use_llm_guidance: useLlmGuidance
     })
   });
-
-  const useLlmGuidance = document.getElementById('use-llm-guidance').checked;
-
-  // in fetch body:
-  body: JSON.stringify({
-    sources,
-    granularity: parseInt(granularity),
-    include_year: includeYear,
-    include_popularity: includePopularity,
-    use_llm_guidance: useLlmGuidance
-  })
 
   const d = await res.json();
   if(d.error){ hideOvError(d.error); restore(); return; }
@@ -850,7 +941,7 @@ async function runPreview(){
     setTimeout(() => { clearInterval(check); reject(new Error("Timeout after 15 minutes")); }, 900000);
   }).then(async (s) => {
     hideOv(); restore();
-    if(!s.preview){ alert("No preview data — check terminal for errors"); return; }
+    if(!s.preview){ showToast("No preview data — check terminal for errors"); return; }
     PD = s.preview;
     document.getElementById("tab-preview").style.display="";
     renderVibes(PD);
@@ -941,14 +1032,14 @@ function toggleMergeCard(id){
 }
 
 async function doMerge(){
-  if(mergeSelected.size < 2){ alert("Select at least 2 vibes to merge"); return; }
+  if(mergeSelected.size < 2){ showToast("Select at least 2 vibes to merge"); return; }
   showOv("Merging vibes...");
   const res = await fetch("/api/merge",{
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({keys: Array.from(mergeSelected)})});
   hideOv();
   const d = await res.json();
-  if(!d.ok){ alert("Merge failed: "+(d.error||"unknown")); return; }
+  if(!d.ok){ showToast("Merge failed: "+(d.error||"unknown")); return; }
   d.removed_keys.forEach(k=>delete PD[k]);
   PD[d.new_key] = d.cluster;
   selectedVibes = new Set([...selectedVibes].filter(k=>!d.removed_keys.includes(k)));
@@ -969,7 +1060,7 @@ async function splitVibe(id, event){
     body: JSON.stringify({cluster_key: id})});
   hideOv();
   const d = await res.json();
-  if(!d.ok){ alert("Split failed: "+(d.error||"unknown")); btn.disabled=false; btn.textContent="Split"; return; }
+  if(!d.ok){ showToast("Split failed: "+(d.error||"unknown")); btn.disabled=false; btn.textContent="Split"; return; }
   delete PD[d.removed_key];
   Object.assign(PD, d.children);
   selectedVibes.delete(d.removed_key);
@@ -988,7 +1079,7 @@ function renderVibes(clusters){
 
   document.getElementById("vibe-grid").innerHTML =
     Object.entries(clusters).map(([id,c],idx)=>{
-      const tags=(c.top_tags||[]).slice(0,8).map((t,i)=>`<span class="tag${i<3?' hot':''}">${t}</span>`).join("");
+      const tags=(c.top_tags||[]).slice(0,8).map((t,i)=>`<span class="tag${i<3?' hot':''}">${esc(t)}</span>`).join("");
       const ePct=Math.round((c.energy_score||0.5)*100);
       const mPct=Math.round((c.mood_score||0.5)*100);
       const eLbl=ePct>=60?"High":ePct>=40?"Mid":"Low";
@@ -999,8 +1090,8 @@ function renderVibes(clusters){
       const canSplit = c.can_split !== false && !isChild;
       const samp=(c.sample_tracks||[]).slice(0,5).map(t=>`
         <div class="sample-row">
-          <span>${t.name} <span style="color:#333"> ${t.artist}</span></span>
-          <button class="btn btn-xs" onclick="event.stopPropagation();retagTrack('${t.id}','${id}')" title="Re-fetch tags">Re-tag</button>
+          <span>${esc(t.name)} <span style="color:#333"> ${esc(t.artist)}</span></span>
+          <button class="btn btn-xs" onclick="event.stopPropagation();retagTrack('${esc(t.id)}','${esc(id)}')" title="Re-fetch tags">Re-tag</button>
         </div>`).join("");
 
       // Pinterest prompts
@@ -1043,10 +1134,10 @@ function renderVibes(clusters){
             <div class="vc-sel-box" id="vc-sel-${id}">${alreadySel?'':''}</div>
           </div>
         </div>
-        <input class="vname" id="vn-${id}" value="${c.suggested_name}"
+        <input class="vname" id="vn-${id}" value="${esc(c.suggested_name)}"
           placeholder="Name..." onclick="event.stopPropagation()">
         ${aiHtml}
-        <div class="vdesc">${c.description}</div>
+        <div class="vdesc">${esc(c.description)}</div>
         <div class="axes">
           <div class="axis-row">
             <span class="axis-lbl">Energy</span>
@@ -1072,18 +1163,29 @@ function renderVibes(clusters){
 
 // ── CONFIRM SELECTED VIBES ────────────────────────────────────────────────────
 async function doConfirmSelected(){
-  if(selectedVibes.size === 0){ alert("Select at least one vibe!"); return; }
+  if(selectedVibes.size === 0){ showToast("Select at least one vibe!"); return; }
   const names={}, selected=Array.from(selectedVibes);
   Object.keys(PD).forEach(id=>{
     const el=document.getElementById(`vn-${id}`);
     if(el) names[id]=el.value;
   });
+  // Check redistribute checkbox
+  const redistributeEl = document.getElementById("cb-redistribute");
+  const redistribute = redistributeEl ? redistributeEl.checked : false;
+
+  if(!redistribute && selected.length < Object.keys(PD).length){
+    const totalSel = selected.reduce((sum, id) => sum + (PD[id]?.track_count || 0), 0);
+    const totalAll = Object.values(PD).reduce((sum, c) => sum + (c.track_count || 0), 0);
+    const skipped = totalAll - totalSel;
+    if(skipped > 0 && !confirm(`Creating ${selected.length} playlists with ${totalSel} tracks.\n${skipped} tracks from unselected vibes will NOT be included.\n\nContinue?`)) return;
+  }
+
   showOv(`Creating ${selected.length} Playlists`);
   setStep("done","active","Creating playlists on Spotify...");
   startOvPoll();
   const res=await fetch("/api/confirm-selected",{
     method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({selected, names})});
+    body:JSON.stringify({selected, names, redistribute})});
   hideOv();
   if((await res.json()).ok){
     await sync();
@@ -1105,15 +1207,62 @@ function renderPlaylists(){
     const coverBtn=pl.spotify_id
       ?`<button class="btn btn-xs" onclick="openCoverPicker('${id}','${pl.spotify_id}')" title="Pick cover image">Cover</button>`
       :'';
+    const histBtn=`<button class="btn btn-xs" onclick="showHistory('${id}')" title="View changes">History</button>`;
+    const lp=pl.last_push;
+    const diffBadge=lp?`<span style="font-size:9px;color:var(--muted);">+${lp.added_count} −${lp.removed_count}</span>`:'';
     return `<div class="plc">
       <div class="flex jb ac" style="margin-bottom:8px;">
-        <div style="font-size:10px;color:var(--muted);letter-spacing:1.5px;">CLUSTER ${parseInt(id)+1} · ${(pl.track_ids||[]).length} tracks</div>
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1.5px;">CLUSTER ${parseInt(id)+1} · ${(pl.track_ids||[]).length} tracks ${diffBadge}</div>
         <span class="health ${hc}" style="font-size:10px;">${h}%</span>
       </div>
-      <input class="plname" value="${pl.name}" onblur="saveName(${id},this.value)">
-      <div style="display:flex;justify-content:flex-end;gap:6px;">${coverBtn}${link}</div>
+      <input class="plname" value="${esc(pl.name)}" onblur="saveName(${id},this.value)">
+      <div style="display:flex;justify-content:flex-end;gap:6px;">${histBtn}${coverBtn}${link}</div>
     </div>`;
   }).join("");
+}
+
+async function showHistory(key){
+  const res=await fetch(`/api/playlist-history/${key}`);
+  const d=await res.json();
+  if(d.message){showToast(d.message);return;}
+  let html=`<b>Last push:</b> ${new Date(d.timestamp).toLocaleString()}<br>`;
+  html+=`<b>Added ${d.added_count}:</b> ${d.added.map(t=>esc(t.name)).join(", ")||"none"}<br>`;
+  html+=`<b>Removed ${d.removed_count}:</b> ${d.removed.map(t=>esc(t.name)).join(", ")||"none"}<br>`;
+  html+=`<b>Total:</b> ${d.total} tracks`;
+  showToast(html);
+}
+
+async function checkDuplicates(){
+  showOv("Checking duplicates...");
+  const res=await fetch("/api/check-duplicates");
+  hideOv();
+  const d=await res.json();
+  if(!d.count){showToast("No duplicates found!");return;}
+  let msg=`Found ${d.count} duplicate(s):\n`;
+  d.duplicates.slice(0,10).forEach(dup=>{
+    const pls=dup.found_in.map(p=>p.name).join(", ");
+    msg+=`• ${esc(dup.name)} — ${esc(dup.artist)} → ${esc(pls)}\n`;
+  });
+  if(d.count>10) msg+=`... and ${d.count-10} more`;
+  showToast(msg);
+}
+
+async function showOverrides(){
+  const res=await fetch("/api/overrides");
+  const d=await res.json();
+  if(!d.count){showToast("No active overrides.");return;}
+  let msg=`${d.count} override(s):\n`;
+  d.overrides.forEach(o=>{
+    msg+=`• ${o.name} → ${o.target_name}\n`;
+  });
+  showToast(msg);
+}
+
+async function removeOverride(tid){
+  const res=await fetch(`/api/overrides/${tid}`,{method:"DELETE"});
+  const d=await res.json();
+  if(d.ok){showToast("Override removed.");await sync();}
+  else showToast("Failed: "+(d.error||"?"),true);
 }
 
 // ── CLEANUP ──────────────────────────────────────────────────────────────────
@@ -1308,25 +1457,33 @@ async function retagTrack(trackId, clusterId){
 
 // ── INBOX ─────────────────────────────────────────────────────────────────────
 function renderInbox(){
-  const inbox = S.inbox||[];
+  const allInbox = S.inbox||[];
   const list  = document.getElementById("inbox-list");
   const empty = document.getElementById("inbox-empty");
+  const searchEl = document.getElementById("inbox-search");
 
-  if(!inbox.length){
-    empty.style.display="block"; list.innerHTML=""; return;
+  if(!allInbox.length){
+    empty.style.display="block"; list.innerHTML=""; if(searchEl) searchEl.style.display="none"; return;
   }
   empty.style.display="none";
+  if(searchEl) searchEl.style.display="block";
+
+  // Filter by search query
+  const q = (searchEl?.value||"").toLowerCase();
+  const inbox = q ? allInbox.filter(t=>
+    (t.name||"").toLowerCase().includes(q) || (t.artist||"").toLowerCase().includes(q)
+  ) : allInbox;
 
   const clusterOptions = Object.entries(S.playlists||{})
-    .map(([k,pl])=>`<option value="${k}">${pl.name}</option>`).join("");
+    .map(([k,pl])=>`<option value="${esc(k)}">${esc(pl.name)}</option>`).join("");
 
   list.innerHTML = inbox.map(t=>`
-    <div class="inbox-card" id="inbox-${t.id}">
+    <div class="inbox-card" id="inbox-${esc(t.id)}">
       <div class="inbox-track">
         <div class="inbox-track-info">
-          <div class="inbox-track-name">${t.name}</div>
-          <div class="inbox-track-artist">${t.artist}</div>
-          <div class="inbox-tags">${(t.tags||[]).slice(0,5).map(tag=>`<span class="inbox-tag">${tag}</span>`).join("")}</div>
+          <div class="inbox-track-name">${esc(t.name)}</div>
+          <div class="inbox-track-artist">${esc(t.artist)}</div>
+          <div class="inbox-tags">${(t.tags||[]).slice(0,5).map(tag=>`<span class="inbox-tag">${esc(tag)}</span>`).join("")}</div>
         </div>
         <select class="cluster-select" id="inbox-sel-${t.id}">
           <option value="">— pick a vibe —</option>
@@ -1340,7 +1497,7 @@ function renderInbox(){
 
 async function approveTrack(tid){
   const sel = document.getElementById(`inbox-sel-${tid}`);
-  if(!sel.value){ alert("Pick a vibe first!"); return; }
+  if(!sel.value){ showToast("Pick a vibe first!"); return; }
   await fetch("/api/inbox/approve",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({approvals:[{track_id:tid,cluster_key:sel.value}]})});
   await sync(); renderInbox();
@@ -1353,7 +1510,7 @@ async function approveAll(){
     const sel=document.getElementById(`inbox-sel-${t.id}`);
     if(sel?.value) approvals.push({track_id:t.id,cluster_key:sel.value});
   }
-  if(!approvals.length){ alert("Select a vibe for each track first."); return; }
+  if(!approvals.length){ showToast("Select a vibe for each track first."); return; }
   showOv("Approving tracks...");
   await fetch("/api/inbox/approve",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({approvals})});
@@ -1491,6 +1648,13 @@ function setStep(id, state, txt=null){
   if(txt) document.getElementById(`ovs-${id}-txt`).textContent = txt;
   const idx = OV_STEPS.indexOf(id);
   if(idx>=0){
+    // When a step becomes active, auto-complete all previous steps
+    if(state==="active"||state==="done"){
+      for(let i=0;i<idx;i++){
+        const prev=document.getElementById(`ovs-${OV_STEPS[i]}`);
+        if(prev&&!prev.classList.contains("done")) prev.className="ov-step done";
+      }
+    }
     const pct = state==="done" ? Math.round(((idx+1)/OV_STEPS.length)*100)
                                 : Math.round((idx/OV_STEPS.length)*100);
     document.getElementById("ov-pbar").style.width = pct+"%";
@@ -1499,17 +1663,28 @@ function setStep(id, state, txt=null){
 
 function stepFromLog(logMsg){
   const m = logMsg.toLowerCase();
+  // Load phase
   if(m.includes("loading tracks") || m.includes("fetching tracks"))        return ["load","active"];
-  if(m.includes("cached") && m.includes("tracks"))            return ["load","done"];
-  if(m.includes("checking cache") || m.includes("cached"))        return ["cache","active"];
-  if(m.includes("all") && m.includes("cached"))               return ["cache","done","All tracks cached"];
-  if(m.includes("tagging") || m.includes("tagging") || m.includes("last.fm")) return ["tag","active"];
-  if(m.includes("cache updated") || m.includes("cache saved")){ return ["tag","done"]; }
-  if(m.includes("clustering") || m.includes("auto-detecting") || m.includes("building embeddings")) return ["cluster","active"];
-  if(m.includes("silhouette") || m.includes("k="))            return ["cluster","active"];
-  if(m.includes("vibes detected") || m.includes("vibes ready") || m.includes("complete")) return ["cluster","done"];
-  if(m.includes("creating playlists") || m.includes("creating playlists"))    return ["done","active"];
-  if(m.includes("playlists live") || m.includes("playlists created"))        return ["done","done"];
+  if(m.includes("loaded") && m.includes("tracks"))                         return ["load","done"];
+  // Cache phase
+  if(m.includes("checking cache"))                                         return ["cache","active"];
+  if(m.includes("all") && m.includes("cached"))                            return ["cache","done","All tracks cached"];
+  if(m.includes("fetching extra metadata"))                                return ["cache","active","Fetching metadata"];
+  // Tag phase
+  if(m.includes("tagging") || m.includes("last.fm") || (m.includes("fetching") && m.includes("new tracks"))) return ["tag","active"];
+  if(m.includes("cache updated") || m.includes("cache saved"))             return ["tag","done"];
+  // Cluster phase (expanded for new messages)
+  if(m.includes("building embeddings") || m.includes("building semantic")) return ["cluster","active","Building AI embeddings"];
+  if(m.includes("fetching audio features"))                                return ["cluster","active","Fetching audio features"];
+  if(m.includes("clustering") || m.includes("auto-detecting"))             return ["cluster","active"];
+  if(m.includes("silhouette") || m.includes("k="))                         return ["cluster","active"];
+  if(m.includes("refining") || m.includes("cohesion"))                     return ["cluster","active","Refining clusters"];
+  if(m.includes("llama suggested") || m.includes("vibe categories"))       return ["cluster","active","AI suggesting categories"];
+  if(m.includes("vibes detected") || m.includes("vibes ready") || m.includes("vibes —") || m.includes("vibes \u2014")) return ["cluster","done"];
+  // Done phase
+  if(m.includes("creating playlists") || m.includes("creating selected"))  return ["done","active"];
+  if(m.includes("playlists live") || m.includes("playlists created"))      return ["done","done"];
+  if(m.includes("done:"))                                                  return ["done","done"];
   return null;
 }
 
@@ -1549,14 +1724,16 @@ function hideOvError(msg){
 }
 
 function showToast(msg, isErr=false){
+  let c=document.getElementById("toast-container");
+  if(!c){c=document.createElement("div");c.id="toast-container";c.className="toast-container";document.body.appendChild(c);}
   const t=document.createElement("div");
-  t.textContent=msg;
-  Object.assign(t.style,{position:"fixed",bottom:"24px",right:"24px",padding:"10px 16px",
-    background:isErr?"var(--red)":"var(--green)",color:isErr?"#fff":"#000",
-    fontFamily:"'DM Mono',monospace",fontSize:"12px",zIndex:"999",
-    animation:"fadeUp .3s ease"});
-  document.body.appendChild(t);
-  setTimeout(()=>t.remove(),3000);
+  t.className="toast "+(isErr?"error":"success");
+  const span=document.createElement("span");span.textContent=msg;
+  const btn=document.createElement("button");btn.className="toast-close";btn.innerHTML="&times;";
+  btn.onclick=()=>t.remove();
+  t.appendChild(span);t.appendChild(btn);
+  c.appendChild(t);
+  setTimeout(()=>{if(t.parentNode)t.remove();},5000);
 }
 {% endif %}
 </script>

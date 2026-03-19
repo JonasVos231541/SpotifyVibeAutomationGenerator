@@ -4,7 +4,8 @@ Vibe Splitter — entry point.
 Creates the Flask app, registers routes, starts the background scheduler.
 Run with:  python app.py
 """
-import os, sys, logging
+import os, sys, logging, json as _json
+from logging.handlers import RotatingFileHandler
 from flask import Flask
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
@@ -17,13 +18,52 @@ from vibe_splitter.routes import register_routes, hourly_update
 from vibe_splitter.clustering import cluster_records
 from vibe_splitter.lastfm import build_vectors
 from vibe_splitter.playlists import push_playlists
+from vibe_splitter.db import init_db
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
-logging.basicConfig(level=logging.INFO, stream=sys.stderr, force=True)
+
+class _JsonFormatter(logging.Formatter):
+    """Structured JSON log formatter for production."""
+    def format(self, record):
+        return _json.dumps({
+            "ts": self.formatTime(record),
+            "level": record.levelname,
+            "logger": record.name,
+            "msg": record.getMessage(),
+            "module": record.module,
+        }, default=str)
+
+_log_format = os.getenv("VS_LOG_FORMAT", "text")
+_log_level = getattr(logging, os.getenv("VS_LOG_LEVEL", "INFO").upper(), logging.INFO)
+_root = logging.getLogger()
+_root.setLevel(_log_level)
+
+# Console handler
+_console = logging.StreamHandler(sys.stderr)
+if _log_format == "json":
+    _console.setFormatter(_JsonFormatter())
+else:
+    _console.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s",
+                                             datefmt="%H:%M:%S"))
+_root.addHandler(_console)
+
+# File handler with rotation (10MB, 5 backups)
+_log_file = os.getenv("VS_LOG_FILE", "vibe_splitter.log")
+try:
+    _file_handler = RotatingFileHandler(_log_file, maxBytes=10*1024*1024, backupCount=5)
+    _file_handler.setFormatter(_JsonFormatter() if _log_format == "json"
+                               else logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+    _root.addHandler(_file_handler)
+except Exception:
+    pass  # Skip file logging if can't write (e.g., read-only filesystem)
+
 log = logging.getLogger("splitter")
 
 # ─── Write default config JSON files if they don't exist ──────────────────────
 write_default_configs()
+
+# ─── Initialize SQLite database (auto-migrates from JSON on first run) ───────
+init_db()
 
 # ─── Flask app ────────────────────────────────────────────────────────────────
 app = Flask(__name__, template_folder=os.path.join(os.path.dirname(__file__),
@@ -36,7 +76,10 @@ register_routes(app)
 
 def _hourly():
     s = sm.load()
-    t = app.config.get("STORED_TOKEN")
+    if s.get("job_running"):
+        log.debug("Hourly skipped — another job is running")
+        return
+    t = sm.get_token()
     if t and s.get("last_weekly") and s.get("sources"):
         try:
             hourly_update(get_sp(t), s)
@@ -46,7 +89,7 @@ def _hourly():
 
 def _weekly():
     s = sm.load()
-    t = app.config.get("STORED_TOKEN")
+    t = sm.get_token()
     if not t or not s.get("last_weekly"):
         return
     if not sm.try_acquire_job(s, "weekly"):
@@ -59,27 +102,67 @@ def _weekly():
         records = build_vectors(tracks, sm, s,
                                 cb=lambda st, m: (sm.add_log(st, m), sm.save(st)),
                                 sp=sp)
+        extra_features = None
+        if config.ENABLE_YEAR_FEATURE or config.ENABLE_POPULARITY_FEATURE:
+            from vibe_splitter.embeddings import extract_extra_features
+            extra_features = extract_extra_features(
+                sp, tracks, config.ENABLE_YEAR_FEATURE, config.ENABLE_POPULARITY_FEATURE)
         clusters = cluster_records(records, s["num_clusters"], s.get("overrides", {}),
-                                   sm=sm, state=s, sp=sp)
+                                   sm=sm, state=s, sp=sp, extra_features=extra_features)
         names = {k: v["name"] for k, v in s["playlists"].items()}
         push_playlists(sp, sm, s, clusters, names)
         s["known_track_ids"] = [t_obj["id"] for t_obj in tracks]
         s["last_weekly"] = s["last_hourly"] = datetime.now().isoformat()
+        s["model_built_at"] = datetime.now().isoformat()
+        s["model_track_count"] = len(tracks)
+        s["drift_warning"] = False
         s["preview"] = None
-        sm.save(s)
         sm.add_log(s, "Weekly recluster complete!")
+        sm.save(s)
+        # Auto-prune stale cache entries
+        try:
+            from vibe_splitter import cache as cache_mod
+            active_ids = set(s.get("known_track_ids", []))
+            for pl in (s.get("playlists") or {}).values():
+                active_ids.update(pl.get("track_ids", []))
+            removed = cache_mod.prune(active_ids)
+            if removed:
+                sm.add_log(s, f"Auto-pruned {removed} stale cache entries")
+                sm.save(s)
+        except Exception as prune_e:
+            log.warning(f"Auto-prune failed: {prune_e}")
     except Exception as e:
         log.error(f"Weekly failed: {e}")
     finally:
         sm.release_job(s)
 
 
+# ─── Startup time (for health endpoint) ──────────────────────────────────────
+_start_time = datetime.now()
+
+# ─── Health endpoint ─────────────────────────────────────────────────────────
+@app.route("/api/health")
+def api_health():
+    from flask import jsonify
+    uptime = (datetime.now() - _start_time).total_seconds()
+    sched_running = hasattr(globals().get("scheduler", None), "running") and scheduler.running
+    return jsonify({
+        "status": "ok",
+        "uptime_seconds": round(uptime),
+        "scheduler": "running" if sched_running else "stopped",
+    })
+
+
 # Guard: only start scheduler once (avoids double-start with Flask debug reloader)
-if os.environ.get("WERKZEUG_RUN_MAIN") != "true" or not os.environ.get("WERKZEUG_RUN_MAIN"):
+scheduler = None
+if not os.environ.get("WERKZEUG_RUN_MAIN"):
     scheduler = BackgroundScheduler()
     scheduler.add_job(_hourly, "interval", hours=1, id="hourly")
     scheduler.add_job(_weekly, "interval", weeks=1, id="weekly")
     scheduler.start()
+
+    import atexit
+    atexit.register(lambda: scheduler.shutdown(wait=False) if scheduler and scheduler.running else None)
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────

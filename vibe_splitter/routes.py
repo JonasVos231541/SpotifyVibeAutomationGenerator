@@ -1,12 +1,13 @@
 """
 All Flask routes for the Vibe Splitter web UI and API.
 """
-import os, time, threading, logging, glob, json, pickle
+import os, time, threading, logging, glob, json
+from urllib.parse import urlparse
 import numpy as np
 import requests as req
 from collections import Counter
 from datetime import datetime
-from flask import request, session, jsonify, redirect, render_template
+from flask import request, session, jsonify, redirect, render_template, Response
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.cluster import KMeans
 from spotipy.oauth2 import SpotifyOAuth
@@ -27,28 +28,80 @@ from .clustering import (
 from .naming import score_axis, energy_band, mood_band, name_all_clusters, generate_ai_names
 from .playlists import push_playlists, push_to_inbox, approve_inbox
 from .incremental import classify_new_tracks
+from .events import publish as sse_publish, stream_events
 
 log = logging.getLogger("splitter.routes")
 
 _preview_lock = threading.Lock()
 
+import re
+_SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_\-:.]+$")
 
-def _ref(app):
-    """Shorthand for refresh_token with current session & app."""
-    return refresh_token(session, app)
+
+def _sanitize_name(name, max_len=100):
+    """Strip HTML tags and cap length for playlist/cluster names."""
+    if not isinstance(name, str):
+        return ""
+    clean = re.sub(r"<[^>]+>", "", name).strip()
+    return clean[:max_len]
+
+
+def _valid_id(val):
+    """Return True if val looks like a safe Spotify / cluster ID."""
+    return isinstance(val, str) and bool(_SAFE_ID_RE.match(val))
+
+
+def _ref(_app=None):
+    """Shorthand for refresh_token with current session & state manager."""
+    return refresh_token(session, sm)
+
+
+def _collect_active_ids(state):
+    """Gather all track IDs that should be retained (playlists, inbox, known)."""
+    active = set(state.get("known_track_ids", []))
+    for pl in (state.get("playlists") or {}).values():
+        active.update(pl.get("track_ids", []))
+    for item in state.get("inbox", []):
+        active.add(item.get("id", ""))
+    return active
 
 
 def register_routes(app):
     """Attach all routes to the Flask app."""
+
+    @app.errorhandler(Exception)
+    def _handle_error(e):
+        log.exception(f"Unhandled error: {e}")
+        code = getattr(e, "code", 500)
+        return jsonify({"error": str(e), "code": code}), code
+
+    @app.after_request
+    def _security_headers(resp):
+        resp.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' https://i.scdn.co data:; "
+            "connect-src 'self'"
+        )
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["X-Frame-Options"] = "DENY"
+        return resp
 
     # ── Pages ─────────────────────────────────────────────────────────────────
     @app.route("/")
     def index():
         return render_template("index.html", logged_in="token_info" in session)
 
+    @app.route("/api/events")
+    def api_events():
+        return Response(stream_events(), mimetype="text/event-stream",
+                        headers={"Cache-Control": "no-cache",
+                                 "X-Accel-Buffering": "no"})
+
     @app.route("/login")
     def login():
-        for f in [".cache", ".spotify_cache"] + glob.glob(".cache-*"):
+        for f in [".cache", config.SPOTIFY_CACHE_PATH] + glob.glob(".cache-*"):
             if os.path.exists(f):
                 os.remove(f)
         o = SpotifyOAuth(
@@ -56,7 +109,7 @@ def register_routes(app):
             client_secret=config.SPOTIFY_CLIENT_SECRET,
             redirect_uri=config.SPOTIFY_REDIRECT_URI,
             scope=config.SPOTIFY_SCOPE,
-            cache_path=".spotify_cache",
+            cache_path=config.SPOTIFY_CACHE_PATH,
         )
         return redirect(o.get_authorize_url() + "&show_dialog=true")
 
@@ -67,7 +120,7 @@ def register_routes(app):
             client_secret=config.SPOTIFY_CLIENT_SECRET,
             redirect_uri=config.SPOTIFY_REDIRECT_URI,
             scope=config.SPOTIFY_SCOPE,
-            cache_path=".spotify_cache",
+            cache_path=config.SPOTIFY_CACHE_PATH,
         )
         t = o.get_access_token(request.args.get("code"), as_dict=True, check_cache=False)
         granted = set(t.get("scope", "").split()) if isinstance(t, dict) else set()
@@ -76,7 +129,7 @@ def register_routes(app):
         if missing:
             log.warning(f"Token MISSING scopes: {missing}")
         session["token_info"] = t
-        app.config["STORED_TOKEN"] = t
+        sm.set_token(t)
         s = sm.load()
         s["preview"] = None
         sm.save(s)
@@ -85,8 +138,8 @@ def register_routes(app):
     @app.route("/logout")
     def logout():
         session.clear()
-        app.config.pop("STORED_TOKEN", None)
-        for f in [".cache", ".spotify_cache"]:
+        sm.clear_token()
+        for f in [".cache", config.SPOTIFY_CACHE_PATH]:
             if os.path.exists(f):
                 os.remove(f)
         return redirect("/")
@@ -94,22 +147,18 @@ def register_routes(app):
     # ── API: Data ─────────────────────────────────────────────────────────────
     @app.route("/api/playlists")
     def api_playlists():
-        t = _ref(app)
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
         try:
             sp = get_sp(t)
-            # Get user info first to verify connection
             user = sp.current_user()
-            print(f"Fetching playlists for user: {user['id']}")
-            
-            # Fetch playlists
+            log.info(f"Fetching playlists for user: {user['id']}")
             playlists = get_user_playlists(sp)
-            print(f"Found {len(playlists)} playlists")
-            
+            log.info(f"Found {len(playlists)} playlists")
             return jsonify(playlists)
         except Exception as e:
-            print(f"ERROR in /api/playlists: {e}")
+            log.error(f"Error in /api/playlists: {e}")
             return jsonify({"error": str(e)}), 500
 
     @app.route("/api/state")
@@ -156,6 +205,101 @@ def register_routes(app):
         sm.save(s)
         return jsonify({"ok": True})
 
+    @app.route("/api/prune-cache", methods=["POST"])
+    def api_prune_cache():
+        """Remove cached tracks that aren't in any active source or playlist."""
+        s = sm.load()
+        active_ids = _collect_active_ids(s)
+        removed = cache_mod.prune(active_ids)
+        if removed:
+            sm.add_log(s, f"Pruned {removed} stale tracks from cache")
+            sm.save(s)
+        remaining = len(cache_mod.load())
+        return jsonify({"ok": True, "removed": removed, "remaining": remaining})
+
+    # ── Playlist history, duplicates, overrides ──────────────────────────────
+
+    @app.route("/api/playlist-history/<key>")
+    def api_playlist_history(key):
+        s = sm.load()
+        pl = s.get("playlists", {}).get(key)
+        if not pl:
+            return jsonify({"error": "Playlist not found"}), 404
+        last_push = pl.get("last_push")
+        if not last_push:
+            return jsonify({"message": "No push history yet"})
+        cache = cache_mod.load()
+        added_info = [{"id": tid, "name": cache.get(tid, {}).get("name", "Unknown")}
+                      for tid in last_push.get("added_ids", [])]
+        removed_info = [{"id": tid, "name": cache.get(tid, {}).get("name", "Unknown")}
+                        for tid in last_push.get("removed_ids", [])]
+        return jsonify({
+            "timestamp": last_push["timestamp"],
+            "added": added_info,
+            "removed": removed_info,
+            "added_count": last_push["added_count"],
+            "removed_count": last_push["removed_count"],
+            "total": last_push["total"],
+        })
+
+    @app.route("/api/check-duplicates")
+    def api_check_duplicates():
+        s = sm.load()
+        cache = cache_mod.load()
+        track_locations = {}
+        for key, pl in s.get("playlists", {}).items():
+            for tid in pl.get("track_ids", []):
+                track_locations.setdefault(tid, []).append(key)
+        duplicates = []
+        for tid, keys in track_locations.items():
+            if len(keys) > 1:
+                entry = cache.get(tid, {})
+                duplicates.append({
+                    "track_id": tid,
+                    "name": entry.get("name", "Unknown"),
+                    "artist": entry.get("artist", "Unknown"),
+                    "found_in": [{"key": k, "name": s["playlists"][k].get("name", k)}
+                                 for k in keys],
+                })
+        return jsonify({"duplicates": duplicates, "count": len(duplicates)})
+
+    @app.route("/api/overrides")
+    def api_overrides():
+        s = sm.load()
+        cache = cache_mod.load()
+        overrides = s.get("overrides", {})
+        result = []
+        for tid, target_key in overrides.items():
+            entry = cache.get(tid, {})
+            target_name = s.get("playlists", {}).get(str(target_key), {}).get(
+                "name", f"Cluster {target_key}")
+            result.append({
+                "track_id": tid,
+                "name": entry.get("name", "Unknown"),
+                "artist": entry.get("artist", "Unknown"),
+                "target_key": str(target_key),
+                "target_name": target_name,
+            })
+        return jsonify({"overrides": result, "count": len(result)})
+
+    @app.route("/api/overrides/<track_id>", methods=["DELETE"])
+    def api_delete_override(track_id):
+        s = sm.load()
+        overrides = s.get("overrides", {})
+        if track_id not in overrides:
+            return jsonify({"error": "Override not found"}), 404
+        del overrides[track_id]
+        sm.add_log(s, f"Removed override for track {track_id}")
+        sm.save(s)
+        return jsonify({"ok": True})
+
+    @app.route("/api/toggle-auto-recluster", methods=["POST"])
+    def api_toggle_auto_recluster():
+        s = sm.load()
+        s["auto_recluster_enabled"] = not s.get("auto_recluster_enabled", True)
+        sm.save(s)
+        return jsonify({"ok": True, "enabled": s["auto_recluster_enabled"]})
+
     @app.route("/api/cache-sources")
     def api_cache_sources():
         cache = cache_mod.load()
@@ -193,8 +337,8 @@ def register_routes(app):
     @app.route("/api/wipe-token", methods=["POST"])
     def api_wipe_token():
         session.clear()
-        app.config.pop("STORED_TOKEN", None)
-        for f in [".cache", ".spotify_cache", ".cache-anonymous"] + glob.glob(".cache-*"):
+        sm.clear_token()
+        for f in [".cache", config.SPOTIFY_CACHE_PATH, ".cache-anonymous"] + glob.glob(".cache-*"):
             if os.path.exists(f):
                 os.remove(f)
         return jsonify({"ok": True, "message": "All tokens wiped"})
@@ -249,7 +393,7 @@ def register_routes(app):
     # ── API: Track operations ─────────────────────────────────────────────────
     @app.route("/api/retag", methods=["POST"])
     def api_retag():
-        t = _ref(app)
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
         tid = request.json.get("track_id")
@@ -272,7 +416,7 @@ def register_routes(app):
         old_tags = set(old.get("tags", []))
         new_tags = set(new_entry.get("tags", []))
         if len(old_tags ^ new_tags) >= 3:
-            classify_new_tracks([new_entry], sm, s)
+            classify_new_tracks([new_entry], sm, s, sp=sp)
             predicted = new_entry.get("predicted_cluster")
             if predicted:
                 sm.add_log(s, f"Reclassified to cluster {predicted}")
@@ -282,12 +426,14 @@ def register_routes(app):
 
     @app.route("/api/override", methods=["POST"])
     def api_override():
-        data = request.json
-        tid  = data.get("track_id")
-        key  = str(data.get("cluster_key"))
+        data = request.json or {}
+        tid  = data.get("track_id", "")
+        key  = str(data.get("cluster_key", ""))
+        if not _valid_id(tid) or not key:
+            return jsonify({"error": "Invalid track_id or cluster_key"}), 400
         s    = sm.load()
         s.setdefault("overrides", {})[tid] = key
-        t = _ref(app)
+        t = _ref()
         if t and s["playlists"]:
             sp    = get_sp(t)
             cache = cache_mod.load()
@@ -315,7 +461,7 @@ def register_routes(app):
     # ── API: Inbox ────────────────────────────────────────────────────────────
     @app.route("/api/inbox/approve", methods=["POST"])
     def api_inbox_approve():
-        t = _ref(app)
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
         s = sm.load()
@@ -333,7 +479,7 @@ def register_routes(app):
     # ── API: Preview + Confirm ────────────────────────────────────────────────
     @app.route("/api/preview", methods=["POST"])
     def api_preview():
-        t = _ref(app)
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
         if _preview_lock.locked():
@@ -346,7 +492,7 @@ def register_routes(app):
         include_popularity = data.get("include_popularity", False)
         use_llm_guidance = data.get("use_llm_guidance", False)   # <-- new
 
-        app.config["STORED_TOKEN"] = t
+        sm.set_token(t)
         s = sm.load()
         s["preview"] = None; s["preview_running"] = True; s["sources"] = sources
         sm.add_log(s, "Loading tracks from Spotify...")
@@ -398,7 +544,7 @@ def register_routes(app):
     @app.route("/api/preview-ensemble", methods=["POST"])
     def api_preview_ensemble():
         """Return 3 alternative clusterings (HDBSCAN, KMeans5, KMeans10) as summaries."""
-        t = _ref(app)
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
         data = request.json
@@ -408,12 +554,12 @@ def register_routes(app):
         tracks = fetch_all_tracks(sp, sources)
         records = build_vectors(tracks, sm, state=None, sp=sp)  # no state for speed
         X_embed = build_embeddings(records)
-        X = build_hybrid_vectors(X_embed, records, audio_features=None)  # no audio
+        X, _ = build_hybrid_vectors(X_embed, records, audio_features=None)  # no audio
 
         def _hdbscan():
             import hdbscan
             clusterer = hdbscan.HDBSCAN(min_cluster_size=max(6, len(records)//20),
-                                         min_samples=3, metric="euclidean", cluster_selection_method="eom")
+                                         min_samples=3, metric="cosine", cluster_selection_method="eom")
             labels = clusterer.fit_predict(X)
             return _summarize_clusters(records, labels)
 
@@ -437,7 +583,6 @@ def register_routes(app):
 
     def _summarize_clusters(records, labels):
         """Return a compact summary for ensemble preview: list of {size, top_tags}."""
-        from collections import Counter
         groups = {}
         for i, (r, lbl) in enumerate(zip(records, labels)):
             groups.setdefault(lbl, []).append(r)
@@ -458,26 +603,27 @@ def register_routes(app):
         Only create Spotify playlists for selected clusters.
         Tracks from unselected clusters are distributed to their nearest selected cluster.
         """
-        t = _ref(app)
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
         s = sm.load()
         if not s.get("preview"):
             return jsonify({"error": "No preview"}), 400
 
-        data            = request.json
-        selected_keys   = [str(k) for k in data.get("selected", [])]   # cluster keys to keep
-        confirmed_names = data.get("names", {})                         # overridden names
-        app.config["STORED_TOKEN"] = t
+        data            = request.json or {}
+        selected_keys   = [str(k) for k in data.get("selected", [])]
+        confirmed_names = {str(k): _sanitize_name(v) for k, v in data.get("names", {}).items()}
+        redistribute    = data.get("redistribute", False)  # default: DON'T redistribute
+        sm.set_token(t)
 
         if not selected_keys:
             return jsonify({"error": "Select at least one vibe"}), 400
 
         full_preview = s["preview"]
-        all_keys     = list(full_preview.keys())
-        rejected     = [k for k in all_keys if k not in selected_keys]
 
-        if rejected and os.path.exists(config.MODEL_FILE):
+        # Only redistribute rejected tracks into selected vibes if explicitly asked
+        rejected = [k for k in full_preview if k not in selected_keys]
+        if redistribute and rejected and os.path.exists(config.MODEL_FILE):
             cache = cache_mod.load()
 
             # Build embedding centroids for selected clusters
@@ -527,14 +673,14 @@ def register_routes(app):
 
     @app.route("/api/confirm", methods=["POST"])
     def api_confirm():
-        t = _ref(app)
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
         s = sm.load()
         if not s.get("preview"):
             return jsonify({"error": "No preview"}), 400
-        names = request.json.get("names", {})
-        app.config["STORED_TOKEN"] = t
+        names = {str(k): _sanitize_name(v) for k, v in (request.json or {}).get("names", {}).items()}
+        sm.set_token(t)
         try:
             sm.add_log(s, "Creating playlists..."); sm.save(s)
             push_playlists(get_sp(t), sm, s, s["preview"], names)
@@ -550,7 +696,7 @@ def register_routes(app):
     @app.route("/api/split", methods=["POST"])
     def api_split():
         """HIERARCHICAL: Split one vibe card into sub-vibes."""
-        t = _ref(app)
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
         data       = request.json
@@ -581,7 +727,7 @@ def register_routes(app):
     @app.route("/api/merge", methods=["POST"])
     def api_merge():
         """HIERARCHICAL: Merge two or more vibe cards into one."""
-        t = _ref(app)
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
         data    = request.json
@@ -660,35 +806,59 @@ def register_routes(app):
     # ── API: Hourly / Names / Covers / Cleanup ────────────────────────────────
     @app.route("/api/run-hourly", methods=["POST"])
     def api_run_hourly():
-        t = _ref(app)
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
         s = sm.load()
         if not s.get("last_weekly"):
             return jsonify({"error": "Run full cluster first"}), 400
-        app.config["STORED_TOKEN"] = t
+        sm.set_token(t)
         hourly_update(get_sp(t), s)
         return jsonify({"ok": True})
 
-    @app.route("/api/update-name", methods=["POST"])
-    def api_update_name():
-        t = _ref(app)
+    @app.route("/api/trigger-weekly", methods=["POST"])
+    def api_trigger_weekly():
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
-        d = request.json
         s = sm.load()
-        key = str(d["cluster_id"])
+        if not s.get("last_weekly"):
+            return jsonify({"error": "Run full cluster first"}), 400
+        if s.get("job_running"):
+            return jsonify({"error": f"Job '{s['job_running']}' already running"}), 409
+        sm.set_token(t)
+        # Run in background thread to avoid blocking the request
+        def _run():
+            try:
+                from app import _weekly
+                _weekly()
+            except Exception as e:
+                log.error(f"Manual weekly trigger failed: {e}")
+        threading.Thread(target=_run, daemon=True).start()
+        return jsonify({"ok": True, "message": "Weekly recluster started in background"})
+
+    @app.route("/api/update-name", methods=["POST"])
+    def api_update_name():
+        t = _ref()
+        if not t:
+            return jsonify({"error": "Not logged in"}), 401
+        d = request.json or {}
+        s = sm.load()
+        key = str(d.get("cluster_id", ""))
+        name = _sanitize_name(d.get("name", ""))
+        if not name:
+            return jsonify({"error": "Name is required"}), 400
         if key in s["playlists"]:
-            s["playlists"][key]["name"] = d["name"]
+            s["playlists"][key]["name"] = name
             pid = s["playlists"][key].get("spotify_id")
             if pid:
-                get_sp(t).playlist_change_details(pid, name=d["name"])
+                get_sp(t).playlist_change_details(pid, name=name)
         sm.save(s)
         return jsonify({"ok": True})
 
     @app.route("/api/cleanup-playlists", methods=["POST"])
     def api_cleanup_playlists():
-        t = _ref(app)
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
         s  = sm.load()
@@ -718,7 +888,7 @@ def register_routes(app):
 
     @app.route("/api/cover-search/<cluster_key>")
     def api_cover_search(cluster_key):
-        t = _ref(app)
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
         s       = sm.load()
@@ -782,7 +952,7 @@ def register_routes(app):
 
     @app.route("/api/upload-cover", methods=["POST"])
     def api_upload_cover():
-        t = _ref(app)
+        t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
         # Check scope
@@ -793,14 +963,36 @@ def register_routes(app):
         playlist_id = data.get("playlist_id"); image_url = data.get("image_url")
         if not playlist_id or not image_url:
             return jsonify({"error": "playlist_id and image_url required"}), 400
+        # SSRF protection: only allow HTTPS URLs to public hosts
+        parsed = urlparse(image_url)
+        if parsed.scheme != "https":
+            return jsonify({"error": "Only HTTPS image URLs are allowed"}), 400
+        hostname = (parsed.hostname or "").lower()
+        _blocked = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "metadata.google.internal"}
+        if hostname in _blocked or hostname.startswith("169.254.") or hostname.startswith("10."):
+            return jsonify({"error": "Internal URLs are not allowed"}), 400
         try:
             img_resp = req.get(image_url, timeout=15); img_resp.raise_for_status()
         except Exception as e:
             return jsonify({"error": f"Could not download image: {e}"}), 400
+        # Spotify requires base64-encoded JPEG, max ~256KB
+        import base64
+        img_b64 = base64.b64encode(img_resp.content)
+        if len(img_b64) > 256 * 1024:
+            try:
+                from PIL import Image
+                from io import BytesIO
+                img = Image.open(BytesIO(img_resp.content)).convert("RGB")
+                img.thumbnail((600, 600))
+                buf = BytesIO()
+                img.save(buf, format="JPEG", quality=75)
+                img_b64 = base64.b64encode(buf.getvalue())
+            except ImportError:
+                return jsonify({"error": "Image > 256KB and Pillow not installed"}), 400
         resp = req.put(
             f"https://api.spotify.com/v1/playlists/{playlist_id}/images",
             headers={"Authorization": f"Bearer {t['access_token']}", "Content-Type": "image/jpeg"},
-            data=img_resp.content, timeout=30,
+            data=img_b64, timeout=30,
         )
         if resp.status_code in (200, 202):
             s = sm.load(); sm.add_log(s, f"Cover updated"); sm.save(s)
@@ -808,6 +1000,86 @@ def register_routes(app):
         if resp.status_code == 403:
             return jsonify({"error": "403 — missing ugc-image-upload scope"}), 403
         return jsonify({"error": f"Spotify returned {resp.status_code}"}), 400
+
+
+# ─── Removed track detection & model staleness ────────────────────────────────
+
+def _handle_removed_tracks(sp, sm, state, removed_ids):
+    """Remove tracks from vibe playlists, inbox, and overrides when they
+    disappear from source playlists."""
+    _cache = cache_mod.load()
+    total_removed = 0
+
+    # Remove from each vibe playlist
+    for key, pl in state.get("playlists", {}).items():
+        pl_tids = set(pl.get("track_ids", []))
+        to_remove = pl_tids & removed_ids
+        if not to_remove:
+            continue
+        pid = pl.get("spotify_id")
+        if pid:
+            uris = []
+            for tid in to_remove:
+                entry = _cache.get(tid)
+                uri = entry["uri"] if entry and entry.get("uri") else f"spotify:track:{tid}"
+                uris.append({"uri": uri})
+            # Batch remove from Spotify (100 per call)
+            for i in range(0, len(uris), 100):
+                try:
+                    sp.playlist_remove_all_occurrences_of_items(pid, uris[i:i+100])
+                except Exception as e:
+                    log.warning(f"Failed to remove tracks from {pl.get('name', key)}: {e}")
+                time.sleep(0.1)
+        pl["track_ids"] = [tid for tid in pl.get("track_ids", []) if tid not in to_remove]
+        total_removed += len(to_remove)
+
+    # Remove from inbox
+    inbox_removed = [t for t in state.get("inbox", []) if t["id"] in removed_ids]
+    if inbox_removed:
+        state["inbox"] = [t for t in state.get("inbox", []) if t["id"] not in removed_ids]
+        inbox_pid = state.get("inbox_playlist_id")
+        if inbox_pid:
+            uris = []
+            for t in inbox_removed:
+                uri = t.get("uri") or _cache.get(t["id"], {}).get("uri") or f"spotify:track:{t['id']}"
+                uris.append({"uri": uri})
+            try:
+                sp.playlist_remove_all_occurrences_of_items(inbox_pid, uris)
+            except Exception as e:
+                log.warning(f"Failed to remove tracks from Inbox: {e}")
+
+    # Remove overrides for deleted tracks
+    overrides = state.get("overrides", {})
+    for tid in removed_ids:
+        overrides.pop(tid, None)
+
+    if total_removed > 0 or inbox_removed:
+        sm.add_log(state, f"Removed {total_removed + len(inbox_removed)} tracks "
+                          f"no longer in sources")
+
+
+def _check_model_staleness(state, current_track_count, sm):
+    """Check if the model is stale and set drift_warning accordingly."""
+    model_built = state.get("model_built_at")
+    if model_built:
+        try:
+            from datetime import datetime as dt
+            built_dt = dt.fromisoformat(model_built)
+            age_days = (dt.now() - built_dt).days
+            if age_days > config.MODEL_STALE_DAYS:
+                if not state.get("drift_warning"):
+                    state["drift_warning"] = True
+                    sm.add_log(state, f"Model is {age_days} days old — consider reclustering")
+        except (ValueError, TypeError):
+            pass
+
+    model_count = state.get("model_track_count", 0)
+    if model_count > 0 and current_track_count > 0:
+        drift = abs(current_track_count - model_count) / model_count
+        if drift > config.MODEL_TRACK_DRIFT_PCT:
+            state["drift_warning"] = "auto_recluster"
+            sm.add_log(state, f"Library changed {drift:.0%} since last cluster — "
+                              f"recluster recommended")
 
 
 # ─── Hourly update (used by scheduler and manual trigger) ─────────────────────
@@ -820,18 +1092,29 @@ def hourly_update(sp, state):
     try:
         sm.add_log(state, "Hourly scan...")
         tracks = fetch_all_tracks(sp, state.get("sources", []), sm=sm, state=state)
+        current_ids = {t["id"] for t in tracks}
         known  = set(state.get("known_track_ids", []))
         new_t  = [t for t in tracks if t["id"] not in known]
+        removed_ids = known - current_ids
 
-        if not new_t:
+        # Handle removed tracks
+        if removed_ids:
+            _handle_removed_tracks(sp, sm, state, removed_ids)
+
+        # Check model staleness
+        _check_model_staleness(state, len(tracks), sm)
+
+        if not new_t and not removed_ids:
             sm.add_log(state, "All up to date")
             state["last_hourly"] = datetime.now().isoformat()
             sm.save(state); return
 
-        records = build_vectors(new_t, sm, state, sp=sp)
-        if records:
-            classify_new_tracks(records, sm, state)
-        push_to_inbox(sp, sm, state, records)
+        if new_t:
+            records = build_vectors(new_t, sm, state, sp=sp)
+            if records:
+                classify_new_tracks(records, sm, state, sp=sp)
+            push_to_inbox(sp, sm, state, records)
+
         state["known_track_ids"] = [t["id"] for t in tracks]
         state["last_hourly"] = datetime.now().isoformat()
         sm.save(state)

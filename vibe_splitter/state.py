@@ -5,7 +5,8 @@ All reads and writes go through a single ``StateManager`` instance which
 wraps file I/O with a ``threading.RLock`` and uses write-to-temp + rename
 to avoid corruption when the app crashes mid-write.
 """
-import json, os, tempfile, threading, logging
+import copy, json, os, tempfile, threading, logging
+from contextlib import contextmanager
 from datetime import datetime
 from . import config
 
@@ -25,6 +26,9 @@ _DEFAULT_STATE = {
     "preview":           None,
     "drift_warning":     False,
     "job_running":       None,
+    "model_built_at":    None,
+    "model_track_count": 0,
+    "auto_recluster_enabled": True,
 }
 
 
@@ -42,6 +46,8 @@ class StateManager:
     def __init__(self, path=None):
         self._path = path or config.STATE_FILE
         self._lock = threading.RLock()
+        self._token = None
+        self._token_lock = threading.RLock()
 
     # ── Read ──────────────────────────────────────────────────────────────────
     def load(self):
@@ -52,7 +58,7 @@ class StateManager:
                         return json.load(f)
                 except (json.JSONDecodeError, ValueError):
                     log.warning("State file corrupted — resetting to defaults")
-            return dict(_DEFAULT_STATE)
+            return copy.deepcopy(_DEFAULT_STATE)
 
     # ── Atomic write ──────────────────────────────────────────────────────────
     def save(self, s):
@@ -80,6 +86,12 @@ class StateManager:
         s.setdefault("logs", []).insert(0, f"[{ts}] {msg}")
         s["logs"] = s["logs"][:80]
         log.info(msg)
+        # Push to SSE clients (lazy import to avoid circular deps)
+        try:
+            from .events import publish
+            publish("log", {"message": msg, "timestamp": ts})
+        except Exception:
+            pass
 
     # ── Job locking (prevents hourly/weekly overlap) ──────────────────────────
     def try_acquire_job(self, s, job_name):
@@ -94,6 +106,37 @@ class StateManager:
     def release_job(self, s):
         s["job_running"] = None
         self.save(s)
+
+    # ── Token management (thread-safe in-memory) ─────────────────────────────
+    def get_token(self):
+        """Return the current Spotify token dict, or None."""
+        with self._token_lock:
+            return self._token
+
+    def set_token(self, token):
+        """Store a Spotify token dict (thread-safe)."""
+        with self._token_lock:
+            self._token = token
+
+    def clear_token(self):
+        """Clear the stored token."""
+        with self._token_lock:
+            self._token = None
+
+    @contextmanager
+    def atomic_update(self):
+        """Context manager for atomic read-modify-write.
+
+        Usage::
+
+            with sm.atomic_update() as s:
+                s["preview"] = clusters
+            # auto-saved on exit
+        """
+        with self._lock:
+            s = self.load()
+            yield s
+            self.save(s)
 
 
 # Module-level singleton — imported by other modules

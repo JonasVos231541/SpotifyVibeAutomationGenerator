@@ -17,9 +17,37 @@ from . import config
 log = logging.getLogger("splitter.spotify")
 
 
+# ─── Simple circuit breaker ──────────────────────────────────────────────────
+class _CircuitBreaker:
+    """Tracks consecutive API failures. Raises early when circuit is open."""
+    def __init__(self, threshold=3, cooldown=60):
+        self._failures = 0
+        self._threshold = threshold
+        self._cooldown = cooldown
+        self._open_until = 0
+
+    def check(self):
+        if self._failures >= self._threshold and time.time() < self._open_until:
+            raise ConnectionError(
+                f"Spotify API circuit open — {self._failures} consecutive failures. "
+                f"Retry after {int(self._open_until - time.time())}s")
+
+    def record_success(self):
+        self._failures = 0
+
+    def record_failure(self):
+        self._failures += 1
+        if self._failures >= self._threshold:
+            self._open_until = time.time() + self._cooldown
+            log.warning(f"Circuit breaker OPEN — {self._failures} failures, "
+                        f"cooldown {self._cooldown}s")
+
+_spotify_cb = _CircuitBreaker()
+
+
 def get_sp(token):
     """Build a ``spotipy.Spotify`` instance with Feb 2026 endpoint patches."""
-    sp = spotipy.Spotify(auth=token["access_token"], requests_timeout=10)
+    sp = spotipy.Spotify(auth=token["access_token"], requests_timeout=30)
 
     # ── Feb 2026 patch: /playlists/{id}/tracks → /items ──
     def patched_add(playlist_id, items, position=None):
@@ -57,19 +85,31 @@ def get_sp(token):
     return sp
 
 
-def refresh_token(session, app):
+def is_healthy(sp):
+    """Quick connectivity check — returns True if Spotify API responds."""
+    try:
+        sp.current_user()
+        _spotify_cb.record_success()
+        return True
+    except Exception as e:
+        _spotify_cb.record_failure()
+        log.warning(f"Spotify health check failed: {e}")
+        return False
+
+
+def refresh_token(session, sm):
     """Return a valid token dict, refreshing if needed.  Falls back to stored/cached tokens."""
     token = session.get("token_info")
     if not token:
-        token = app.config.get("STORED_TOKEN")
+        token = sm.get_token()
         if token:
             session["token_info"] = token
-    if not token and os.path.exists(".spotify_cache"):
+    if not token and os.path.exists(config.SPOTIFY_CACHE_PATH):
         try:
-            with open(".spotify_cache") as f:
+            with open(config.SPOTIFY_CACHE_PATH) as f:
                 token = json.load(f)
             session["token_info"] = token
-            app.config["STORED_TOKEN"] = token
+            sm.set_token(token)
         except Exception:
             token = None
     if not token:
@@ -79,13 +119,13 @@ def refresh_token(session, app):
         client_secret=config.SPOTIFY_CLIENT_SECRET,
         redirect_uri=config.SPOTIFY_REDIRECT_URI,
         scope=config.SPOTIFY_SCOPE,
-        cache_path=".spotify_cache",
+        cache_path=config.SPOTIFY_CACHE_PATH,
     )
     if oauth.is_token_expired(token):
         try:
             token = oauth.refresh_access_token(token["refresh_token"])
             session["token_info"] = token
-            app.config["STORED_TOKEN"] = token
+            sm.set_token(token)
         except Exception as e:
             log.error(f"Token refresh failed: {e}")
             return None
@@ -107,9 +147,11 @@ def fetch_tracks_from_source(sp, src, sm=None, state=None):
     backoff = 1  # seconds — doubles after each consecutive 429
 
     for _page in range(MAX_PAGES):
+        _spotify_cb.check()
         t0 = time.time()
         try:
             r = _fetch_page(sp, src, offset)
+            _spotify_cb.record_success()
             backoff = 1  # reset on success
         except SpotifyException as e:
             elapsed = time.time() - t0
@@ -130,9 +172,13 @@ def fetch_tracks_from_source(sp, src, sm=None, state=None):
                     log.error(f"[fetch] retry also failed: {retry_e}")
                     raise
             else:
+                _spotify_cb.record_failure()
                 log.error(f"[fetch] HTTP {e.http_status} page={_page}: {e}")
                 raise
+        except ConnectionError:
+            raise
         except Exception as e:
+            _spotify_cb.record_failure()
             log.error(f"[fetch] page={_page}: {type(e).__name__}: {e}")
             raise
 
@@ -226,8 +272,11 @@ def get_user_playlists(sp):
 
 def fetch_audio_features(sp, track_ids, sm=None, state=None):
     """Fetch Spotify audio features in batches of 100.  Returns ``{tid: {key: val}}``."""
-    KEYS = ["danceability", "energy", "valence", "acousticness", "instrumentalness", "tempo"]
+    KEYS = ["danceability", "energy", "valence", "acousticness",
+            "instrumentalness", "tempo", "speechiness", "mode",
+            "liveness", "loudness"]
     features = {}
+    backoff = 1
     for i in range(0, len(track_ids), 100):
         batch = track_ids[i:i+100]
         try:
@@ -236,11 +285,28 @@ def fetch_audio_features(sp, track_ids, sm=None, state=None):
                 for tid, feat in zip(batch, results):
                     if feat:
                         features[tid] = {k: float(feat.get(k, 0.0)) for k in KEYS}
+            backoff = 1  # reset on success
         except SpotifyException as e:
             if e.http_status == 429:
-                retry_after = e.headers.get("Retry-After") if e.headers else "unknown"
-                log.error(f"audio_features batch {i}: 429 — Retry-After: {retry_after}")
-                # Optionally sleep and retry? For now just log.
+                retry_header = e.headers.get("Retry-After") if e.headers else None
+                wait = int(retry_header) if retry_header else backoff
+                wait = max(wait, backoff) + 1
+                log.warning(f"audio_features batch {i}: 429 — waiting {wait}s")
+                if sm and state:
+                    sm.add_log(state, f"Audio features rate limited — waiting {wait}s...")
+                    sm.save(state)
+                time.sleep(wait)
+                backoff = min(backoff * 2, 60)
+                # Retry the same batch once
+                try:
+                    results = sp.audio_features(batch)
+                    if results:
+                        for tid, feat in zip(batch, results):
+                            if feat:
+                                features[tid] = {k: float(feat.get(k, 0.0)) for k in KEYS}
+                    backoff = 1
+                except Exception as retry_e:
+                    log.warning(f"audio_features batch {i} retry failed: {retry_e}")
             else:
                 log.warning(f"audio_features batch {i}: {e}")
         except Exception as e:
