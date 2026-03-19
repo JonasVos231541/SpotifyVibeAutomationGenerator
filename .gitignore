@@ -19,6 +19,7 @@ vibe_splitter.db-shm
 splitter_model.pkl
 splitter_model.npz
 splitter_model_meta.json
+tfidf_pipeline.pkl
 
 # Logs
 vibe_splitter.log

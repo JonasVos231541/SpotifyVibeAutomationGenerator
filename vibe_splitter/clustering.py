@@ -312,7 +312,7 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
             cat_embeddings = build_embeddings(cat_records)
 
             # Pad category embeddings to match hybrid vector dimensions
-            # (build_embeddings returns 384-d, but X may be 384+N after audio/extra fusion)
+            # (build_embeddings returns TFIDF_DIM-d, but X may be wider after audio/extra fusion)
             if cat_embeddings.shape[1] < X.shape[1]:
                 pad_width = X.shape[1] - cat_embeddings.shape[1]
                 cat_embeddings = np.hstack([

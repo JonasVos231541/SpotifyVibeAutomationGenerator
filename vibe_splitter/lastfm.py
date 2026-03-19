@@ -61,13 +61,16 @@ def get_artist_tags(artist):
     return [(t["name"].lower(), int(t["count"])) for t in tags[:10]]
 
 
-def fetch_and_cache_track(track_obj, sp=None):
+def fetch_and_cache_track(track_obj, sp=None, artist_cache=None):
     """
     Build a cache entry for one track.
 
     Multi-artist handling: joins all artist names (e.g. "Artist1 & Artist2").
     Fallback: if Last.fm returns <3 tags *and* ``sp`` is provided, uses Spotify
     artist genres as low-weight tags.
+
+    ``artist_cache``: optional dict to cache artist tags across tracks
+    in the same batch, avoiding duplicate Last.fm calls.
     """
     artists = track_obj.get("artists", [{}])
     # Multi-artist: primary for API lookups, joined for embedding context
@@ -79,9 +82,14 @@ def fetch_and_cache_track(track_obj, sp=None):
     track_tags = get_track_tags(primary_artist, name)
     useful = [(tg, cnt) for tg, cnt in track_tags if tg not in config.NOISE_TAGS and len(tg) > 1]
 
-    # 2. Artist-level tags (downweighted)
+    # 2. Artist-level tags (downweighted) — use cache if available
     if len(useful) < 3:
-        artist_tags = get_artist_tags(primary_artist)
+        if artist_cache is not None and primary_artist in artist_cache:
+            artist_tags = artist_cache[primary_artist]
+        else:
+            artist_tags = get_artist_tags(primary_artist)
+            if artist_cache is not None:
+                artist_cache[primary_artist] = artist_tags
         artist_useful = [(tg, int(cnt * 0.7)) for tg, cnt in artist_tags
                          if tg not in config.NOISE_TAGS and len(tg) > 1]
         existing = {tg for tg, _ in useful}
@@ -132,8 +140,9 @@ def build_vectors(tracks, sm, state, cb=None, sp=None):
         cache_mod.save(cache)
 
     unsaved = 0
+    artist_cache = {}  # cache artist tags across tracks in this batch
     for i, t in enumerate(to_fetch):
-        entry = fetch_and_cache_track(t, sp=sp)
+        entry = fetch_and_cache_track(t, sp=sp, artist_cache=artist_cache)
         cache[t["id"]] = entry
         unsaved += 1
         if unsaved >= SAVE_EVERY:

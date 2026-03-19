@@ -18,7 +18,7 @@ from vibe_splitter.routes import register_routes, hourly_update
 from vibe_splitter.clustering import cluster_records
 from vibe_splitter.lastfm import build_vectors
 from vibe_splitter.playlists import push_playlists
-from vibe_splitter.db import init_db
+from vibe_splitter.db import init_db, check_embedding_version
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 
@@ -64,6 +64,7 @@ write_default_configs()
 
 # ─── Initialize SQLite database (auto-migrates from JSON on first run) ───────
 init_db()
+check_embedding_version(expected_version=2)  # TF-IDF v2 — clears old transformer embeddings
 
 # ─── Flask app ────────────────────────────────────────────────────────────────
 app = Flask(__name__, template_folder=os.path.join(os.path.dirname(__file__),

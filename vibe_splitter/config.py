@@ -99,6 +99,8 @@ RECCOBEATS_BATCH    = int(os.getenv("VS_RECCOBEATS_BATCH", "5"))
 RECCOBEATS_DELAY    = float(os.getenv("VS_RECCOBEATS_DELAY", "0.6"))
 TOP_N_TAGS          = int(os.getenv("VS_TOP_N_TAGS",            "100"))
 MIN_TAG_DF          = int(os.getenv("VS_MIN_TAG_DF",            "2"))
+TFIDF_DIM           = int(os.getenv("VS_TFIDF_DIM",            "128"))
+TFIDF_MODEL_FILE    = os.getenv("VS_TFIDF_MODEL_FILE", "tfidf_pipeline.pkl")
 
 # ─── Granularity range (for slider) ────────────────────────────────────────────
 GRANULARITY_MIN     = int(os.getenv("VS_GRANULARITY_MIN",       "1"))

@@ -184,8 +184,8 @@ def classify_new_tracks(records, sm=None, state=None, sp=None):
         log.warning(f"Model version {model_version} detected. "
                     f"Recluster recommended for improved accuracy.")
 
-    # Build semantic embeddings (always needed)
-    X_new = build_embeddings(records)
+    # Build semantic embeddings (transform mode — reuse saved TF-IDF pipeline)
+    X_new = build_embeddings(records, fit=False)
 
     # Decide whether to build full hybrid vectors or use semantic fallback
     has_audio = model.get("has_audio", False)
@@ -224,7 +224,7 @@ def classify_new_tracks(records, sm=None, state=None, sp=None):
         if not centroids:
             # Legacy model without semantic centroids — use hybrid centroids
             centroids = model.get("centroids", {})
-            embed_dim = model.get("embed_dim", 384)
+            embed_dim = model.get("embed_dim", config.TFIDF_DIM)
             hybrid_dim = model.get("hybrid_dim", embed_dim)
             if hybrid_dim != embed_dim and centroids:
                 # Truncate hybrid centroids to semantic dimensions as best-effort

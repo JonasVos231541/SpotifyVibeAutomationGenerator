@@ -45,6 +45,30 @@ class _CircuitBreaker:
 _spotify_cb = _CircuitBreaker()
 
 
+# ─── Rate budget tracker ──────────────────────────────────────────────────────
+class _RateBudget:
+    """Track API calls in a sliding window to prevent rate limit bans."""
+    def __init__(self, max_calls_per_hour=150):
+        self._calls = []
+        self._max = max_calls_per_hour
+
+    def can_call(self):
+        now = time.time()
+        self._calls = [t for t in self._calls if now - t < 3600]
+        return len(self._calls) < self._max
+
+    def record(self):
+        self._calls.append(time.time())
+
+    def remaining(self):
+        now = time.time()
+        self._calls = [t for t in self._calls if now - t < 3600]
+        return self._max - len(self._calls)
+
+
+_rate_budget = _RateBudget()
+
+
 def get_sp(token):
     """Build a ``spotipy.Spotify`` instance with Feb 2026 endpoint patches."""
     sp = spotipy.Spotify(auth=token["access_token"], requests_timeout=30)
@@ -148,6 +172,10 @@ def fetch_tracks_from_source(sp, src, sm=None, state=None):
 
     for _page in range(MAX_PAGES):
         _spotify_cb.check()
+        if not _rate_budget.can_call():
+            log.warning(f"[fetch] Rate budget exhausted ({_rate_budget.remaining()} remaining) — stopping fetch")
+            break
+        _rate_budget.record()
         t0 = time.time()
         try:
             r = _fetch_page(sp, src, offset)
@@ -275,20 +303,45 @@ def get_user_playlists(sp):
 
 
 def fetch_audio_features(sp, track_ids, sm=None, state=None):
-    """Fetch Spotify audio features in batches of 100.  Returns ``{tid: {key: val}}``."""
+    """Fetch Spotify audio features in batches of 100, with SQLite caching.
+
+    Checks the DB cache first and only fetches missing tracks from Spotify.
+    Returns ``{tid: {key: val}}``.
+    """
     KEYS = ["danceability", "energy", "valence", "acousticness",
             "instrumentalness", "tempo", "speechiness", "mode",
             "liveness", "loudness"]
+
+    # Check cache first
     features = {}
+    to_fetch = list(track_ids)
+    try:
+        from . import db
+        cached = db.get_audio_features_batch(track_ids)
+        if cached:
+            features.update(cached)
+            to_fetch = [tid for tid in track_ids if tid not in cached]
+            log.info(f"Audio features cache hit: {len(cached)}/{len(track_ids)}, "
+                     f"fetching {len(to_fetch)} from API")
+    except Exception as e:
+        log.debug(f"Audio feature cache unavailable: {e}")
+
+    if not to_fetch:
+        if sm and state:
+            sm.add_log(state, f"Audio features: {len(features)}/{len(track_ids)} from cache")
+        return features
+
+    # Fetch missing from Spotify API
+    new_features = {}
     backoff = 1
-    for i in range(0, len(track_ids), 100):
-        batch = track_ids[i:i+100]
+    for i in range(0, len(to_fetch), 100):
+        batch = to_fetch[i:i+100]
         try:
             results = sp.audio_features(batch)
             if results:
                 for tid, feat in zip(batch, results):
                     if feat:
-                        features[tid] = {k: float(feat.get(k, 0.0)) for k in KEYS}
+                        new_features[tid] = {k: float(feat.get(k, 0.0)) for k in KEYS}
             backoff = 1  # reset on success
         except SpotifyException as e:
             if e.http_status == 429:
@@ -304,13 +357,12 @@ def fetch_audio_features(sp, track_ids, sm=None, state=None):
                     sm.save(state)
                 time.sleep(wait)
                 backoff = min(backoff * 2, 60)
-                # Retry the same batch once
                 try:
                     results = sp.audio_features(batch)
                     if results:
                         for tid, feat in zip(batch, results):
                             if feat:
-                                features[tid] = {k: float(feat.get(k, 0.0)) for k in KEYS}
+                                new_features[tid] = {k: float(feat.get(k, 0.0)) for k in KEYS}
                     backoff = 1
                 except Exception as retry_e:
                     log.warning(f"audio_features batch {i} retry failed: {retry_e}")
@@ -319,9 +371,61 @@ def fetch_audio_features(sp, track_ids, sm=None, state=None):
         except Exception as e:
             log.warning(f"audio_features batch {i}: {e}")
         time.sleep(0.12)
+
+    # Save newly fetched features to DB cache
+    if new_features:
+        try:
+            from . import db
+            db.save_audio_features_batch(new_features)
+        except Exception as e:
+            log.debug(f"Failed to cache audio features: {e}")
+
+    features.update(new_features)
     if sm and state:
-        sm.add_log(state, f"Fetched audio features for {len(features)}/{len(track_ids)} tracks")
+        sm.add_log(state, f"Audio features: {len(features)}/{len(track_ids)} "
+                          f"({len(cached) if 'cached' in dir() else 0} cached, "
+                          f"{len(new_features)} fetched)")
     return features
+
+
+def check_sources_changed(sp, sources, saved_snapshots):
+    """Check if any source playlists changed since last check.
+
+    Uses Spotify snapshot_id for playlists (1 API call each) and
+    total count for liked songs. Returns (changed: bool, new_snapshots: dict).
+    """
+    new_snapshots = {}
+    changed = False
+    for src in sources:
+        src_type = src.get("type", "")
+        src_id = src.get("id", "liked")
+
+        if src_type in ("cache_all", "cache_playlist"):
+            continue  # no API call needed for cache sources
+
+        saved = saved_snapshots.get(src_id, {})
+
+        try:
+            if src_type == "liked":
+                # Check total count for liked songs (no snapshot_id available)
+                r = sp.current_user_saved_tracks(limit=1)
+                total = r.get("total", 0)
+                new_snapshots[src_id] = {"total": total}
+                if total != saved.get("total"):
+                    changed = True
+            else:
+                # Check playlist snapshot_id
+                r = sp.playlist(src_id, fields="snapshot_id")
+                snap = r.get("snapshot_id", "")
+                new_snapshots[src_id] = {"snapshot_id": snap}
+                if snap != saved.get("snapshot_id"):
+                    changed = True
+        except Exception as e:
+            log.warning(f"Snapshot check failed for {src_id}: {e}")
+            changed = True  # assume changed on error
+            new_snapshots[src_id] = saved
+
+    return changed, new_snapshots
 
 
 def create_playlist_me(sp, name, description="Auto-split by Vibe Splitter"):

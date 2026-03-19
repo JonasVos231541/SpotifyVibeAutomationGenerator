@@ -18,6 +18,7 @@ from . import cache as cache_mod
 from .state import state_manager as sm
 from .spotify_client import (
     get_sp, refresh_token, fetch_all_tracks, get_user_playlists, fetch_audio_features,
+    check_sources_changed,
 )
 from .lastfm import build_vectors, fetch_and_cache_track
 from .embeddings import build_embeddings, build_hybrid_vectors, extract_extra_features
@@ -886,11 +887,20 @@ def register_routes(app):
         sm.save(s)
         return jsonify({"ok": True, "removed": removed, "kept": len(kept)})
 
+    _cover_cache = {}  # {cluster_key: {"images": [...], "ts": time.time()}}
+    _COVER_CACHE_TTL = 3600  # 1 hour
+
     @app.route("/api/cover-search/<cluster_key>")
     def api_cover_search(cluster_key):
         t = _ref()
         if not t:
             return jsonify({"error": "Not logged in"}), 401
+
+        # Check cache
+        cached = _cover_cache.get(cluster_key)
+        if cached and time.time() - cached["ts"] < _COVER_CACHE_TTL:
+            return jsonify({"images": cached["images"]})
+
         s       = sm.load()
         cluster = (s.get("preview") or {}).get(cluster_key, {})
         top_tags = cluster.get("top_tags", [])
@@ -900,36 +910,34 @@ def register_routes(app):
         sp = get_sp(t)
         images, seen_urls = [], set()
 
-        # Strategy 1: search by artist + tag (more relevant)
-        for track in sample[:3]:
+        # Strategy 1: search by artist + tag (reduced: 2 artists x 1 tag)
+        for track in sample[:2]:
             artist = track.get("artist", "")
             if not artist:
                 continue
-            for tag in top_tags[:2]:
-                try:
-                    results = sp.search(q=f'{artist} {tag}', type="track", limit=5, market="NL")
-                    for item in (results.get("tracks") or {}).get("items", []):
-                        if not item:
-                            continue
-                        imgs = item.get("album", {}).get("images", [])
-                        if imgs:
-                            url = imgs[0]["url"]
-                            if url not in seen_urls:
-                                seen_urls.add(url)
-                                images.append({"url": url,
-                                    "album": item["album"].get("name", ""),
-                                    "artist": (item.get("artists") or [{}])[0].get("name", "")})
-                    if len(images) >= 12:
-                        break
-                    time.sleep(0.1)
-                except Exception:
-                    continue
-            if len(images) >= 12:
-                break
+            tag = top_tags[0]
+            try:
+                results = sp.search(q=f'{artist} {tag}', type="track", limit=5, market="NL")
+                for item in (results.get("tracks") or {}).get("items", []):
+                    if not item:
+                        continue
+                    imgs = item.get("album", {}).get("images", [])
+                    if imgs:
+                        url = imgs[0]["url"]
+                        if url not in seen_urls:
+                            seen_urls.add(url)
+                            images.append({"url": url,
+                                "album": item["album"].get("name", ""),
+                                "artist": (item.get("artists") or [{}])[0].get("name", "")})
+                if len(images) >= 12:
+                    break
+                time.sleep(0.1)
+            except Exception:
+                continue
 
-        # Strategy 2: tag-based genre search (fallback)
+        # Strategy 2: tag-based genre search (reduced: max 3 tags)
         if len(images) < 6:
-            for tag in top_tags[:5]:
+            for tag in top_tags[:3]:
                 try:
                     results = sp.search(q=f'genre:"{tag}"', type="track", limit=10, market="NL")
                     for item in (results.get("tracks") or {}).get("items", []):
@@ -948,7 +956,10 @@ def register_routes(app):
                     time.sleep(0.1)
                 except Exception:
                     continue
-        return jsonify({"images": images[:12]})
+
+        result = images[:12]
+        _cover_cache[cluster_key] = {"images": result, "ts": time.time()}
+        return jsonify({"images": result})
 
     @app.route("/api/upload-cover", methods=["POST"])
     def api_upload_cover():
@@ -1090,8 +1101,20 @@ def hourly_update(sp, state):
     if not sm.try_acquire_job(state, "hourly"):
         return
     try:
-        sm.add_log(state, "Hourly scan...")
-        tracks = fetch_all_tracks(sp, state.get("sources", []), sm=sm, state=state)
+        sources = state.get("sources", [])
+        saved_snapshots = state.get("source_snapshots", {})
+
+        # Quick check: did any source actually change?
+        changed, new_snapshots = check_sources_changed(sp, sources, saved_snapshots)
+        state["source_snapshots"] = new_snapshots
+        if not changed:
+            sm.add_log(state, "No sources changed, skipping")
+            state["last_hourly"] = datetime.now().isoformat()
+            sm.save(state)
+            return
+
+        sm.add_log(state, "Hourly scan — changes detected...")
+        tracks = fetch_all_tracks(sp, sources, sm=sm, state=state)
         current_ids = {t["id"] for t in tracks}
         known  = set(state.get("known_track_ids", []))
         new_t  = [t for t in tracks if t["id"] not in known]

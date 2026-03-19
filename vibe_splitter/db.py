@@ -68,6 +68,11 @@ def init_db():
             PRIMARY KEY (playlist_key, track_id)
         );
         CREATE INDEX IF NOT EXISTS idx_pt_track ON playlist_tracks(track_id);
+        CREATE TABLE IF NOT EXISTS audio_features (
+            track_id     TEXT PRIMARY KEY,
+            features_json TEXT NOT NULL,
+            fetched_at   TEXT NOT NULL
+        );
     """)
     conn.commit()
 
@@ -277,3 +282,56 @@ def get_embeddings_batch(track_ids):
         f"SELECT id, embedding FROM tracks WHERE id IN ({placeholders}) AND embedding IS NOT NULL",
         track_ids).fetchall()
     return {row["id"]: row["embedding"] for row in rows}
+
+
+def clear_embeddings():
+    """Clear all cached embeddings (used when embedding method changes)."""
+    conn = _get_conn()
+    conn.execute("UPDATE tracks SET embedding = NULL")
+    conn.commit()
+    log.info("Cleared all cached embeddings")
+
+
+def check_embedding_version(expected_version=2):
+    """Check embedding version, clear cache if mismatched."""
+    current = get_config("embedding_version", 0)
+    if current != expected_version:
+        log.info(f"Embedding version changed ({current} -> {expected_version}), clearing cache")
+        clear_embeddings()
+        set_config("embedding_version", expected_version)
+
+
+# ─── Audio feature cache ──────────────────────────────────────────────────────
+
+def get_audio_features_batch(track_ids):
+    """Return {tid: {feature_dict}} for tracks with cached audio features."""
+    if not track_ids:
+        return {}
+    conn = _get_conn()
+    result = {}
+    # Process in chunks to avoid SQLite variable limit
+    for i in range(0, len(track_ids), 500):
+        batch = track_ids[i:i+500]
+        placeholders = ",".join("?" * len(batch))
+        rows = conn.execute(
+            f"SELECT track_id, features_json FROM audio_features WHERE track_id IN ({placeholders})",
+            batch).fetchall()
+        for row in rows:
+            try:
+                result[row["track_id"]] = json.loads(row["features_json"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return result
+
+
+def save_audio_features_batch(features_dict):
+    """Save {tid: {feature_dict}} to the audio_features cache."""
+    if not features_dict:
+        return
+    conn = _get_conn()
+    now = datetime.now().isoformat()
+    conn.executemany(
+        "INSERT OR REPLACE INTO audio_features (track_id, features_json, fetched_at) VALUES (?, ?, ?)",
+        [(tid, json.dumps(feats), now) for tid, feats in features_dict.items()])
+    conn.commit()
+    log.info(f"Cached audio features for {len(features_dict)} tracks")

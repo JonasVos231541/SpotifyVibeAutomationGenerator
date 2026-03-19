@@ -3,9 +3,6 @@ FROM python:3.10-slim AS builder
 
 WORKDIR /build
 
-# Install CPU-only PyTorch first (~200MB instead of 915MB GPU version)
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -30,11 +27,11 @@ ENV VS_DB_FILE=/data/vibe_splitter.db \
     VS_STATE_FILE=/data/splitter_state.json \
     VS_MODEL_FILE=/data/splitter_model.npz \
     VS_MODEL_META_FILE=/data/splitter_model_meta.json \
+    VS_TFIDF_MODEL_FILE=/data/tfidf_pipeline.pkl \
     VS_CACHE_FILE=/data/track_cache.json \
     VS_LOG_FILE=/data/vibe_splitter.log \
     VS_LOG_FORMAT=json \
     SPOTIPY_CACHE_PATH=/data/.spotify_cache \
-    HF_HOME=/data/.hf_cache \
     PYTHONUNBUFFERED=1
 
 EXPOSE 10000
