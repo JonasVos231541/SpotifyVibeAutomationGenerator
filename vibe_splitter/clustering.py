@@ -340,11 +340,15 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
 
     if not used_llm:
         import hdbscan
+        # L2-normalize so euclidean distance ∝ cosine distance
+        # (avoids metric compatibility issues across sklearn/hdbscan versions)
+        from sklearn.preprocessing import normalize
+        X_norm = normalize(X, norm="l2")
         clusterer = hdbscan.HDBSCAN(
             min_cluster_size=min_cs, min_samples=3,
-            metric="cosine", cluster_selection_method="eom",
+            metric="euclidean", cluster_selection_method="eom",
         )
-        raw_labels = clusterer.fit_predict(X)
+        raw_labels = clusterer.fit_predict(X_norm)
         unique = set(raw_labels)
         n_clusters = len([l for l in unique if l >= 0])
         n_noise = sum(1 for l in raw_labels if l == -1)
@@ -422,7 +426,7 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
         "hybrid_dim": int(X.shape[1]),
         "has_audio": bool(audio_feats),
         "has_extra": extra_features is not None,
-        "hdbscan_metric": "cosine",
+        "hdbscan_metric": "euclidean (L2-normalized)",
     }
     with open(config.MODEL_META_FILE, "w") as f:
         json.dump(_meta, f, indent=2)
