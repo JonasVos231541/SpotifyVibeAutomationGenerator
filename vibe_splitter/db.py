@@ -18,6 +18,7 @@ from . import config as app_config
 log = logging.getLogger("splitter.db")
 
 DB_FILE = os.getenv("VS_DB_FILE", "vibe_splitter.db")
+DB_BATCH_SIZE = 500  # max IDs per IN clause (SQLite limit is 999)
 
 _local = threading.local()
 
@@ -208,6 +209,41 @@ def upsert_tracks_batch(entries):
     conn.commit()
 
 
+def get_tracks_batch(track_ids):
+    """Get multiple tracks by ID as {tid: entry} dict without loading entire table."""
+    if not track_ids:
+        return {}
+    track_ids = list(track_ids)  # convert once (handles sets, generators)
+    conn = _get_conn()
+    result = {}
+    for i in range(0, len(track_ids), DB_BATCH_SIZE):
+        batch = track_ids[i:i+DB_BATCH_SIZE]
+        placeholders = ",".join("?" * len(batch))
+        rows = conn.execute(
+            f"SELECT * FROM tracks WHERE id IN ({placeholders})", batch).fetchall()
+        for row in rows:
+            result[row["id"]] = _row_to_track(row)
+    return result
+
+
+def iter_all_tracks():
+    """Yield (tid, entry) pairs one at a time — memory-efficient full scan."""
+    conn = _get_conn()
+    cursor = conn.execute("SELECT * FROM tracks")
+    while True:
+        row = cursor.fetchone()
+        if row is None:
+            break
+        yield row["id"], _row_to_track(row)
+
+
+def track_ids_set():
+    """Return set of all cached track IDs (lightweight — no full row data)."""
+    conn = _get_conn()
+    rows = conn.execute("SELECT id FROM tracks").fetchall()
+    return {row["id"] for row in rows}
+
+
 def delete_tracks(track_ids):
     """Remove tracks from cache by IDs."""
     if not track_ids:
@@ -215,6 +251,29 @@ def delete_tracks(track_ids):
     conn = _get_conn()
     conn.executemany("DELETE FROM tracks WHERE id=?", [(tid,) for tid in track_ids])
     conn.commit()
+
+
+def clear_tracks():
+    """Delete all cached tracks."""
+    conn = _get_conn()
+    conn.execute("DELETE FROM tracks")
+    conn.commit()
+    log.info("Cleared all cached tracks from DB")
+
+
+def prune_tracks(active_ids):
+    """Remove tracks not in active_ids. Returns count of removed tracks."""
+    if not active_ids:
+        return 0
+    conn = _get_conn()
+    active_ids = set(active_ids)
+    all_ids = {row["id"] for row in conn.execute("SELECT id FROM tracks").fetchall()}
+    stale = all_ids - active_ids
+    if stale:
+        conn.executemany("DELETE FROM tracks WHERE id=?", [(tid,) for tid in stale])
+        conn.commit()
+        log.info(f"Pruned {len(stale)} stale tracks from DB")
+    return len(stale)
 
 
 def track_count():
@@ -276,12 +335,18 @@ def get_embeddings_batch(track_ids):
     """Return {tid: bytes} for tracks that have cached embeddings."""
     if not track_ids:
         return {}
+    track_ids = list(track_ids)
     conn = _get_conn()
-    placeholders = ",".join("?" * len(track_ids))
-    rows = conn.execute(
-        f"SELECT id, embedding FROM tracks WHERE id IN ({placeholders}) AND embedding IS NOT NULL",
-        track_ids).fetchall()
-    return {row["id"]: row["embedding"] for row in rows}
+    result = {}
+    for i in range(0, len(track_ids), DB_BATCH_SIZE):
+        batch = track_ids[i:i+DB_BATCH_SIZE]
+        placeholders = ",".join("?" * len(batch))
+        rows = conn.execute(
+            f"SELECT id, embedding FROM tracks WHERE id IN ({placeholders}) AND embedding IS NOT NULL",
+            batch).fetchall()
+        for row in rows:
+            result[row["id"]] = row["embedding"]
+    return result
 
 
 def clear_embeddings():
@@ -310,8 +375,8 @@ def get_audio_features_batch(track_ids):
     conn = _get_conn()
     result = {}
     # Process in chunks to avoid SQLite variable limit
-    for i in range(0, len(track_ids), 500):
-        batch = track_ids[i:i+500]
+    for i in range(0, len(track_ids), DB_BATCH_SIZE):
+        batch = track_ids[i:i+DB_BATCH_SIZE]
         placeholders = ",".join("?" * len(batch))
         rows = conn.execute(
             f"SELECT track_id, features_json FROM audio_features WHERE track_id IN ({placeholders})",

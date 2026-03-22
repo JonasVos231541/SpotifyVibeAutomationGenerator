@@ -86,6 +86,8 @@ def _hourly():
             hourly_update(get_sp(t), s)
         except Exception as e:
             log.error(f"Hourly failed: {e}")
+            sm.add_log(s, f"Hourly sync failed: {e}")
+            sm.save(s)
 
 
 def _weekly():
@@ -122,11 +124,11 @@ def _weekly():
         sm.save(s)
         # Auto-prune stale cache entries
         try:
-            from vibe_splitter import cache as cache_mod
+            from vibe_splitter import db as _db
             active_ids = set(s.get("known_track_ids", []))
             for pl in (s.get("playlists") or {}).values():
                 active_ids.update(pl.get("track_ids", []))
-            removed = cache_mod.prune(active_ids)
+            removed = _db.prune_tracks(active_ids)
             if removed:
                 sm.add_log(s, f"Auto-pruned {removed} stale cache entries")
                 sm.save(s)
@@ -134,6 +136,8 @@ def _weekly():
             log.warning(f"Auto-prune failed: {prune_e}")
     except Exception as e:
         log.error(f"Weekly failed: {e}")
+        sm.add_log(s, f"Weekly recluster failed: {e}")
+        sm.save(s)
     finally:
         sm.release_job(s)
 
@@ -147,11 +151,24 @@ def api_health():
     from flask import jsonify
     uptime = (datetime.now() - _start_time).total_seconds()
     sched_running = hasattr(globals().get("scheduler", None), "running") and scheduler.running
-    return jsonify({
+    # Memory usage (Linux /proc, fallback for other OS)
+    mem_mb = None
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    mem_mb = int(line.split()[1]) // 1024
+                    break
+    except Exception:
+        pass
+    result = {
         "status": "ok",
         "uptime_seconds": round(uptime),
         "scheduler": "running" if sched_running else "stopped",
-    })
+    }
+    if mem_mb is not None:
+        result["memory_mb"] = mem_mb
+    return jsonify(result)
 
 
 # Guard: only start scheduler once (avoids double-start with Flask debug reloader)

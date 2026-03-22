@@ -252,11 +252,19 @@ def fetch_tracks_from_cache_source(src, cache):
 
 def fetch_all_tracks(sp, sources, sm=None, state=None):
     """Merge tracks from all sources, deduplicating by track ID."""
-    from . import cache as cache_mod
+    from . import db
     seen, merged = set(), []
     cache_srcs   = [s for s in sources if s["type"] in ("cache_all", "cache_playlist")]
     spotify_srcs = [s for s in sources if s["type"] not in ("cache_all", "cache_playlist")]
-    cache = cache_mod.load() if cache_srcs else {}
+    # Only load full cache for cache_all; use targeted query for cache_playlist
+    cache = {}
+    if any(s["type"] == "cache_all" for s in cache_srcs):
+        cache = db.get_all_tracks()
+    elif cache_srcs:
+        needed_ids = set()
+        for s in cache_srcs:
+            needed_ids.update(s.get("track_ids", []))
+        cache = db.get_tracks_batch(needed_ids) if needed_ids else {}
 
     for src in cache_srcs:
         for t in fetch_tracks_from_cache_source(src, cache):

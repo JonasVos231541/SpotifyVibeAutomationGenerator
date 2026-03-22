@@ -10,7 +10,7 @@ Handles:
 import os, time, logging
 from datetime import datetime
 from . import config
-from . import cache as cache_mod
+from . import db
 from .spotify_client import create_playlist_me
 from .incremental import classify_new_tracks
 
@@ -19,7 +19,9 @@ log = logging.getLogger("splitter.playlists")
 
 def push_playlists(sp, sm, state, clusters, confirmed_names):
     """Create or update Spotify playlists for each cluster."""
-    _cache = cache_mod.load()
+    # Collect all unique track IDs across clusters for a single batch lookup
+    all_tids = list({tid for c in clusters.values() for tid in c.get("track_ids", [])})
+    _cache = db.get_tracks_batch(all_tids)
 
     for key, c in clusters.items():
         name   = confirmed_names.get(key) or c["suggested_name"]
@@ -82,7 +84,8 @@ def push_to_inbox(sp, sm, state, new_records):
     # Auto-assign high-confidence tracks
     n_auto = 0
     if auto_assigned and state.get("playlists"):
-        _cache = cache_mod.load()
+        _auto_ids = [r["id"] for r in auto_assigned]
+        _cache = db.get_tracks_batch(_auto_ids)
         for rec in auto_assigned:
             key = rec.get("predicted_cluster")
             pl  = state["playlists"].get(key, {})
@@ -131,7 +134,8 @@ def approve_inbox(sp, sm, state, approvals):
     """
     if not os.path.exists(config.MODEL_FILE):
         return
-    _cache    = cache_mod.load()
+    _approve_ids = [a["track_id"] for a in approvals]
+    _cache    = db.get_tracks_batch(_approve_ids)
     inbox_pid = state.get("inbox_playlist_id")
 
     for a in approvals:

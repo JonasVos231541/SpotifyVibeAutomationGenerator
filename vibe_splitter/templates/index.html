@@ -183,6 +183,14 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
 .samples{font-size:11px;color:var(--muted);line-height:2;}
 .sample-row{display:flex;align-items:center;justify-content:space-between;gap:6px;}
 .sample-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* Collapsible card details */
+.vc-details{max-height:0;overflow:hidden;transition:max-height .3s ease,opacity .25s ease;opacity:0;}
+.vc.expanded .vc-details{max-height:800px;opacity:1;}
+.vc-toggle{font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);
+  cursor:pointer;display:flex;align-items:center;gap:4px;margin-top:6px;user-select:none;}
+.vc-toggle::after{content:'';display:inline-block;width:0;height:0;border-left:4px solid transparent;
+  border-right:4px solid transparent;border-top:5px solid var(--muted);transition:transform .2s;}
+.vc.expanded .vc-toggle::after{transform:rotate(180deg);}
 
 /* PLAYLIST CARDS */
 .plc{background:var(--s1);border:1px solid var(--border);padding:16px;transition:border-color .15s;}
@@ -631,6 +639,16 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
 let S={}, PD={}, userPlaylists=[], selectedSources=[], statsLoaded=false;
 let ensembleResults = null; // store ensemble clusterings
 
+// CSRF: inject X-Requested-With header on all fetch calls
+const _origFetch = window.fetch;
+window.fetch = function(url, opts = {}) {
+  opts.headers = opts.headers instanceof Headers
+    ? opts.headers : new Headers(opts.headers || {});
+  if (!opts.headers.has("X-Requested-With"))
+    opts.headers.set("X-Requested-With", "XMLHttpRequest");
+  return _origFetch.call(this, url, opts);
+};
+
 // XSS-safe HTML escaping for user/API data
 function esc(s){ if(!s) return ""; const d=document.createElement("div"); d.textContent=String(s); return d.innerHTML; }
 
@@ -964,6 +982,11 @@ function updateSelCount(){
   document.getElementById("btn-confirm-sel").disabled = n === 0;
 }
 
+function toggleCardDetails(id){
+  const card = document.getElementById(`vc-${id}`);
+  if(card) card.classList.toggle("expanded");
+}
+
 function toggleVibe(id){
   if(mergeMode){ toggleMergeCard(id); return; }
   if(selectedVibes.has(id)){
@@ -1136,25 +1159,28 @@ function renderVibes(clusters){
         </div>
         <input class="vname" id="vn-${id}" value="${esc(c.suggested_name)}"
           placeholder="Name..." onclick="event.stopPropagation()">
-        ${aiHtml}
-        <div class="vdesc">${esc(c.description)}</div>
-        <div class="axes">
-          <div class="axis-row">
-            <span class="axis-lbl">Energy</span>
-            <div class="axis-bar"><div class="axis-fill" style="width:${ePct}%;background:var(--green)"></div></div>
-            <span class="axis-val">${eLbl}</span>
-          </div>
-          <div class="axis-row">
-            <span class="axis-lbl">Mood</span>
-            <div class="axis-bar"><div class="axis-fill" style="width:${mPct}%;background:${mColor}"></div></div>
-            <span class="axis-val">${mLbl}</span>
-          </div>
-        </div>
         <div class="tags">${tags}</div>
-        <div class="samples">${samp}</div>
-        ${pinHtml}
-        <div style="display:flex;justify-content:flex-end;margin-top:10px;gap:6px;">
-          ${canSplit?`<button class="split-btn" id="split-btn-${id}" onclick="splitVibe('${id}',event)">Split</button>`:''}
+        <div class="vc-toggle" onclick="event.stopPropagation();toggleCardDetails('${id}')">Details</div>
+        <div class="vc-details">
+          ${aiHtml}
+          <div class="vdesc">${esc(c.description)}</div>
+          <div class="axes">
+            <div class="axis-row">
+              <span class="axis-lbl">Energy</span>
+              <div class="axis-bar"><div class="axis-fill" style="width:${ePct}%;background:var(--green)"></div></div>
+              <span class="axis-val">${eLbl}</span>
+            </div>
+            <div class="axis-row">
+              <span class="axis-lbl">Mood</span>
+              <div class="axis-bar"><div class="axis-fill" style="width:${mPct}%;background:${mColor}"></div></div>
+              <span class="axis-val">${mLbl}</span>
+            </div>
+          </div>
+          <div class="samples">${samp}</div>
+          ${pinHtml}
+          <div style="display:flex;justify-content:flex-end;margin-top:10px;gap:6px;">
+            ${canSplit?`<button class="split-btn" id="split-btn-${id}" onclick="splitVibe('${id}',event)">Split</button>`:''}
+          </div>
         </div>
       </div>`;
     }).join("");

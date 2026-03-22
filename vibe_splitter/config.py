@@ -83,6 +83,7 @@ AUTO_RECLUSTER_DRIFT  = float(os.getenv("VS_AUTO_RECLUSTER_DRIFT", "0.50"))
 CONFIDENCE_TEMPERATURE = float(os.getenv("VS_CONFIDENCE_TEMPERATURE", "0.15"))
 ADAPTIVE_MARGIN_SCALE  = float(os.getenv("VS_ADAPTIVE_MARGIN_SCALE",  "0.05"))
 LASTFM_RATE_DELAY   = float(os.getenv("VS_LASTFM_RATE_DELAY",  "0.26"))
+LASTFM_WORKERS      = int(os.getenv("VS_LASTFM_WORKERS",      "5"))
 MODEL_STALE_DAYS    = int(os.getenv("VS_MODEL_STALE_DAYS",     "30"))
 MODEL_TRACK_DRIFT_PCT = float(os.getenv("VS_MODEL_TRACK_DRIFT_PCT", "0.25"))
 
@@ -125,7 +126,7 @@ def _load_json_set(filename, default):
     path = os.path.join(_CONFIG_DIR, filename)
     if os.path.exists(path):
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             log.info(f"Loaded {len(data)} items from {filename}")
             return set(data)
@@ -139,7 +140,7 @@ def _load_genre_rules(filename="genre_rules.json", default=None):
     path = os.path.join(_CONFIG_DIR, filename)
     if os.path.exists(path):
         try:
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 raw = json.load(f)
             rules = [(set(r[0]), r[1], r[2], r[3]) for r in raw]
             log.info(f"Loaded {len(rules)} genre rules from {filename}")

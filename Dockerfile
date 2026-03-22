@@ -37,4 +37,4 @@ ENV VS_DB_FILE=/data/vibe_splitter.db \
 EXPOSE 10000
 
 # Use Python directly as entrypoint — avoids Windows CRLF issues with shell scripts
-CMD ["python", "-c", "import os, secrets; os.makedirs('/data', exist_ok=True); os.environ.setdefault('FLASK_SECRET_KEY', open('/data/.flask_secret').read().strip() if os.path.exists('/data/.flask_secret') else (lambda k: (open('/data/.flask_secret','w').write(k), k)[1])(secrets.token_hex(32))); port = int(os.environ.get('PORT', 10000)); from waitress import serve; from app import app; print(f'Vibe Splitter starting on :{port}', flush=True); serve(app, host='0.0.0.0', port=port, threads=8, channel_timeout=600)"]
+CMD ["python", "-c", "import os, secrets; os.makedirs('/data', exist_ok=True); os.environ.setdefault('FLASK_SECRET_KEY', open('/data/.flask_secret').read().strip() if os.path.exists('/data/.flask_secret') else (lambda k: (open('/data/.flask_secret','w').write(k), k)[1])(secrets.token_hex(32))); port = int(os.environ.get('PORT', 10000)); from waitress import serve; from app import app; print(f'Vibe Splitter starting on :{port}', flush=True); serve(app, host='0.0.0.0', port=port, threads=4, channel_timeout=600)"]
