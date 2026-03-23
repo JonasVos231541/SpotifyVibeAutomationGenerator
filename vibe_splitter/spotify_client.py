@@ -8,7 +8,7 @@ Handles:
   - Audio-feature batch retrieval with detailed 429 logging
   - Playlist fetching with 429 handling
 """
-import json, os, time, logging
+import json, os, time, logging, threading
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from spotipy.exceptions import SpotifyException
@@ -51,19 +51,23 @@ class _RateBudget:
     def __init__(self, max_calls_per_hour=150):
         self._calls = []
         self._max = max_calls_per_hour
+        self._lock = threading.Lock()
 
     def can_call(self):
         now = time.time()
-        self._calls = [t for t in self._calls if now - t < 3600]
-        return len(self._calls) < self._max
+        with self._lock:
+            self._calls = [t for t in self._calls if now - t < 3600]
+            return len(self._calls) < self._max
 
     def record(self):
-        self._calls.append(time.time())
+        with self._lock:
+            self._calls.append(time.time())
 
     def remaining(self):
         now = time.time()
-        self._calls = [t for t in self._calls if now - t < 3600]
-        return self._max - len(self._calls)
+        with self._lock:
+            self._calls = [t for t in self._calls if now - t < 3600]
+            return self._max - len(self._calls)
 
 
 _rate_budget = _RateBudget()
@@ -323,10 +327,12 @@ def fetch_audio_features(sp, track_ids, sm=None, state=None):
     # Check cache first
     features = {}
     to_fetch = list(track_ids)
+    n_cached = 0
     try:
         from . import db
         cached = db.get_audio_features_batch(track_ids)
         if cached:
+            n_cached = len(cached)
             features.update(cached)
             to_fetch = [tid for tid in track_ids if tid not in cached]
             log.info(f"Audio features cache hit: {len(cached)}/{len(track_ids)}, "
@@ -391,7 +397,7 @@ def fetch_audio_features(sp, track_ids, sm=None, state=None):
     features.update(new_features)
     if sm and state:
         sm.add_log(state, f"Audio features: {len(features)}/{len(track_ids)} "
-                          f"({len(cached) if 'cached' in dir() else 0} cached, "
+                          f"({n_cached} cached, "
                           f"{len(new_features)} fetched)")
     return features
 

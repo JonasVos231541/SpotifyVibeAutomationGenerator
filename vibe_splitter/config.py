@@ -67,7 +67,7 @@ SECRET_KEY = _get_secret_key()
 # ─── Ollama (AI naming & guidance) ───────────────────────────────────────────
 OLLAMA_URL      = os.getenv("OLLAMA_URL",      "http://localhost:11434/api/generate")
 OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL",    "llama3")
-ENABLE_AI_NAMES = os.getenv("VS_ENABLE_AI_NAMES", "true").lower() == "true"
+ENABLE_AI_NAMES = os.getenv("VS_ENABLE_AI_NAMES", "false").lower() == "true"
 
 # ─── Numeric thresholds (overridable via env vars) ────────────────────────────
 AUDIO_WEIGHT        = float(os.getenv("VS_AUDIO_WEIGHT",        "0.20"))
@@ -187,9 +187,9 @@ _DEFAULT_MOOD_POS = [
     "romantic","love","sensual","passionate","tender","intimate","flirtatious",
     "party","celebratory","festive","carnival","fiesta","summer",
     "gospel","praise","worship","devotional",
-    "tropical","sunny","beach","carefree",
+    "tropical","beach",
     "funk","groove","soul","feel good",
-    "bossa nova","samba","carnival",
+    "bossa nova","samba",
     "afrobeats","highlife","juju",
     "reggae","one love","irie",
     "k-pop","idol","bubblegum",
@@ -264,14 +264,17 @@ SKIP_NAME_TAGS = _load_json_set("skip_name_tags.json", [
 
 def write_default_configs():
     """Write default JSON config files for first-time setup.  Skips files that already exist."""
-    os.makedirs(_CONFIG_DIR, exist_ok=True)
-    _write_if_missing("noise_tags.json",  sorted(_DEFAULT_NOISE_TAGS))
-    _write_if_missing("energy_pos.json",  sorted(_DEFAULT_ENERGY_POS))
-    _write_if_missing("energy_neg.json",  sorted(_DEFAULT_ENERGY_NEG))
-    _write_if_missing("mood_pos.json",    sorted(_DEFAULT_MOOD_POS))
-    _write_if_missing("mood_neg.json",    sorted(_DEFAULT_MOOD_NEG))
-    _write_if_missing("genre_rules.json", [list(r) for r in _DEFAULT_GENRE_RULES])
-    _write_if_missing("skip_name_tags.json", sorted(SKIP_NAME_TAGS))
+    try:
+        os.makedirs(_CONFIG_DIR, exist_ok=True)
+        _write_if_missing("noise_tags.json",  sorted(_DEFAULT_NOISE_TAGS))
+        _write_if_missing("energy_pos.json",  sorted(_DEFAULT_ENERGY_POS))
+        _write_if_missing("energy_neg.json",  sorted(_DEFAULT_ENERGY_NEG))
+        _write_if_missing("mood_pos.json",    sorted(_DEFAULT_MOOD_POS))
+        _write_if_missing("mood_neg.json",    sorted(_DEFAULT_MOOD_NEG))
+        _write_if_missing("genre_rules.json", [list(r) for r in _DEFAULT_GENRE_RULES])
+        _write_if_missing("skip_name_tags.json", sorted(SKIP_NAME_TAGS))
+    except OSError:
+        pass  # read-only filesystem -- use in-memory defaults
 
 
 def _write_if_missing(filename, data):

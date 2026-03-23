@@ -282,6 +282,20 @@ def track_count():
     return conn.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
 
 
+def tagged_track_count():
+    """Count tracks that have at least one tag."""
+    conn = _get_conn()
+    return conn.execute(
+        "SELECT COUNT(*) FROM tracks WHERE tags_json IS NOT NULL AND tags_json != '[]'"
+    ).fetchone()[0]
+
+
+def audio_features_count():
+    """Count tracks with cached audio features."""
+    conn = _get_conn()
+    return conn.execute("SELECT COUNT(*) FROM audio_features").fetchone()[0]
+
+
 def _row_to_track(row):
     """Convert a DB row to a track dict matching the old cache format."""
     tags = json.loads(row["tags_json"]) if row["tags_json"] else []

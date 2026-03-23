@@ -22,8 +22,9 @@ from queue import Queue, Empty
 
 log = logging.getLogger("splitter.events")
 
-_subscribers = []
+_subscribers = []  # list of (queue, created_at) tuples
 _lock = threading.Lock()
+_MAX_SUBSCRIBER_AGE = 3600  # 1 hour max per SSE connection
 
 # Event types: progress, log, state_change, error
 HEARTBEAT_INTERVAL = 15  # seconds
@@ -33,7 +34,7 @@ def subscribe():
     """Register a new client queue. Returns the queue."""
     q = Queue(maxsize=256)
     with _lock:
-        _subscribers.append(q)
+        _subscribers.append((q, time.time()))
     log.debug(f"SSE subscriber added (total: {len(_subscribers)})")
     return q
 
@@ -41,10 +42,7 @@ def subscribe():
 def unsubscribe(q):
     """Remove a client queue."""
     with _lock:
-        try:
-            _subscribers.remove(q)
-        except ValueError:
-            pass
+        _subscribers[:] = [(sq, t) for sq, t in _subscribers if sq is not q]
     log.debug(f"SSE subscriber removed (total: {len(_subscribers)})")
 
 
@@ -52,18 +50,19 @@ def publish(event_type, data):
     """Broadcast an event to all connected clients (non-blocking)."""
     payload = json.dumps(data, default=str)
     msg = f"event: {event_type}\ndata: {payload}\n\n"
+    now = time.time()
     with _lock:
-        dead = []
-        for q in _subscribers:
+        alive = []
+        for q, created_at in _subscribers:
+            # Evict stale subscribers (older than max age)
+            if now - created_at > _MAX_SUBSCRIBER_AGE:
+                continue
             try:
                 q.put_nowait(msg)
+                alive.append((q, created_at))
             except Exception:
-                dead.append(q)
-        for q in dead:
-            try:
-                _subscribers.remove(q)
-            except ValueError:
-                pass
+                pass  # drop dead/full queues
+        _subscribers[:] = alive
 
 
 def stream_events():

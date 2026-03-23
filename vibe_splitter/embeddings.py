@@ -132,8 +132,8 @@ def _build_embedding_sentence(record):
     if flavor:
         parts.append(", ".join(flavor))
 
-    # Energy/mood — 5-band descriptors for finer-grained matching
-    tc = Counter(tags)
+    # Energy/mood — use real Last.fm weights for accurate scoring
+    tc = Counter(record.get("tag_dict", {}))
     e = score_axis(tc, config.ENERGY_POS, config.ENERGY_NEG)
     m = score_axis(tc, config.MOOD_POS,   config.MOOD_NEG)
     parts.append(f"{_energy_descriptor(e)}, {_mood_descriptor(m)}")
@@ -352,6 +352,10 @@ def build_hybrid_vectors(embeddings, records, audio_features=None,
         else:
             means = audio_matrix.mean(axis=0)
             stds  = audio_matrix.std(axis=0)
+
+        # Guard against NaN from empty/all-NaN columns
+        means[np.isnan(means)] = 0.5
+        stds[np.isnan(stds)] = 1.0
 
         stds_safe = stds.copy()
         stds_safe[stds_safe == 0] = 1

@@ -1,7 +1,7 @@
 """
 Playlist blueprint — names, covers, cleanup, retag, override, hourly/weekly triggers.
 """
-import os, time, logging, threading, base64
+import os, time, logging, threading, base64, ipaddress, socket
 from urllib.parse import urlparse
 from flask import Blueprint, request, session, jsonify
 import requests as req
@@ -59,9 +59,9 @@ def api_override():
     if not _valid_id(tid) or not _valid_id(key):
         return jsonify({"error": "Invalid track_id or cluster_key"}), 400
 
+    t = _ref()
     with sm.atomic_update() as s:
         s.setdefault("overrides", {})[tid] = key
-        t = _ref()
         if t and s.get("playlists"):
             sp = get_sp(t)
             rec = db.get_track(tid)
@@ -274,15 +274,23 @@ def api_upload_cover():
     parsed = urlparse(image_url)
     if parsed.scheme != "https":
         return jsonify({"error": "Only HTTPS image URLs are allowed"}), 400
-    hostname = (parsed.hostname or "").lower()
+    hostname = (parsed.hostname or "").lower().strip("[]")
     _blocked = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "metadata.google.internal"}
-    if hostname in _blocked or hostname.startswith("169.254.") or hostname.startswith("10."):
+    if hostname in _blocked:
         return jsonify({"error": "Internal URLs are not allowed"}), 400
+    try:
+        resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for _, _, _, _, addr in resolved:
+            ip = ipaddress.ip_address(addr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return jsonify({"error": "Internal URLs are not allowed"}), 400
+    except (socket.gaierror, ValueError):
+        return jsonify({"error": "Could not resolve hostname"}), 400
     try:
         img_resp = req.get(image_url, timeout=15); img_resp.raise_for_status()
     except Exception as e:
         return jsonify({"error": f"Could not download image: {e}"}), 400
-    img_b64 = base64.b64encode(img_resp.content)
+    img_b64 = base64.b64encode(img_resp.content).decode("utf-8")
     if len(img_b64) > 256 * 1024:
         try:
             from PIL import Image
@@ -291,7 +299,7 @@ def api_upload_cover():
             img.thumbnail((600, 600))
             buf = BytesIO()
             img.save(buf, format="JPEG", quality=75)
-            img_b64 = base64.b64encode(buf.getvalue())
+            img_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
         except ImportError:
             return jsonify({"error": "Image > 256KB and Pillow not installed"}), 400
     resp = req.put(

@@ -246,7 +246,10 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
   font-size:12px;color:var(--muted2);line-height:1.8;margin-bottom:16px;}
 .note-warn{background:rgba(240,165,0,.04);border-color:rgba(240,165,0,.2);}
 .lfm{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:var(--muted);padding:3px 8px;border:1px solid var(--border);}
-.lfm-d{width:5px;height:5px;background:#d51007;border-radius:50%;}
+.lfm-d{width:5px;height:5px;background:var(--muted);border-radius:50%;}
+.lfm-d.ok{background:#1DB954;}
+.lfm-d.err{background:#d51007;}
+.btn:disabled{opacity:.4;cursor:not-allowed;pointer-events:none;}
 
 /* OVERLAY */
 #ov{display:none;position:fixed;inset:0;background:rgba(4,4,4,.96);z-index:200;
@@ -397,7 +400,7 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
   <div class="logo"><div class="lpulse"></div>VIBE SPLITTER</div>
   {% if logged_in %}
   <div class="flex gap-12 ac">
-    <div class="lfm"><div class="lfm-d"></div>Last.fm</div>
+    <div class="lfm"><div class="lfm-d" id="lfm-dot"></div>Last.fm</div>
     <a href="/logout" class="btn">Logout</a>
   </div>
   {% endif %}
@@ -609,8 +612,8 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
     <div><div class="stitle">Inbox</div>
       <div style="font-size:12px;color:var(--muted2);">New liked songs waiting to be sorted</div></div>
     <div class="flex gap-8">
-      <button class="btn btn-g btn-sm" onclick="approveAll()" id="btn-approve-all">Approve All</button>
-      <button class="btn btn-sm" onclick="dismissAll()">Dismiss All</button>
+      <button class="btn btn-g btn-sm" onclick="approveAll()" id="btn-approve-all" disabled>Approve All</button>
+      <button class="btn btn-sm" onclick="dismissAll()" id="btn-dismiss-all" disabled>Dismiss All</button>
     </div>
   </div>
   <input type="text" id="inbox-search" placeholder="Search inbox by name or artist..."
@@ -652,11 +655,22 @@ window.fetch = function(url, opts = {}) {
 // XSS-safe HTML escaping for user/API data
 function esc(s){ if(!s) return ""; const d=document.createElement("div"); d.textContent=String(s); return d.innerHTML; }
 
+// Event delegation for dynamically created buttons
+document.addEventListener("click", (e)=>{
+  const btn = e.target.closest(".ai-name-btn");
+  if(btn){ e.stopPropagation(); const el=document.getElementById(btn.dataset.target); if(el) el.value=btn.dataset.name; }
+});
+
 document.addEventListener("DOMContentLoaded",async()=>{
   await loadUserPlaylists();
   await loadCacheSources();
   await sync();
   // Use SSE for real-time updates, fallback to polling
+  let _pollTimer = null;
+  function startPoll(ms){
+    if(_pollTimer) clearInterval(_pollTimer);
+    _pollTimer = setInterval(sync, ms);
+  }
   if(typeof EventSource !== "undefined"){
     const es = new EventSource("/api/events");
     es.addEventListener("log", ()=>{ sync(); });
@@ -665,14 +679,13 @@ document.addEventListener("DOMContentLoaded",async()=>{
       try{ const d=JSON.parse(e.data); if(d.pct!=null) updateProgress(d); }catch(ex){}
     });
     es.onerror = ()=>{
-      // Fallback to polling on SSE failure
       es.close();
-      setInterval(sync, 7000);
+      startPoll(7000);
     };
-    // Still poll occasionally as safety net (every 30s instead of 7s)
-    setInterval(sync, 30000);
+    // Safety-net poll only (SSE handles real-time)
+    startPoll(30000);
   } else {
-    setInterval(sync, 7000);
+    startPoll(7000);
   }
 });
 
@@ -775,13 +788,15 @@ async function sync(){
   const lt = document.getElementById("ltimes");
   if(lt) lt.innerHTML=`
     <div>Last sync: ${S.last_hourly?new Date(S.last_hourly).toLocaleString('nl-NL'):"—"}</div>
-    <div>Last recluster: ${S.last_weekly?new Date(S.last_weekly).toLocaleString('nl-NL'):"—"}</div>`;
+    <div${(()=>{const a=S.recluster_age_days;if(a>30)return' style="color:var(--red)"';if(a>14)return' style="color:var(--amber)"';return''})()}>Last recluster: ${S.last_weekly?new Date(S.last_weekly).toLocaleString('nl-NL'):"—"}${S.recluster_age_days!=null?` (${S.recluster_age_days}d ago)`:''}</div>`;
 
   // Cache info
   fetch("/api/cache-stats").then(r=>r.json()).then(d=>{
     const el=document.getElementById("cache-info");
-    if(el) el.innerHTML=`<div>Cached: <b style="color:var(--text)">${d.cached_tracks}</b> tracks</div><div>Size: <b style="color:var(--text)">${d.cache_size_kb} KB</b></div>`;
-  });
+    if(el) el.innerHTML=`<div>Cached: <b style="color:var(--text)">${d.cached_tracks}</b> tracks (${d.tagged_tracks||0} tagged)</div><div>Size: <b style="color:var(--text)">${d.cache_size_kb} KB</b></div>`;
+    const dot=document.getElementById("lfm-dot");
+    if(dot) dot.className="lfm-d "+(d.tagged_tracks>0?"ok":"err");
+  }).catch(e=>console.warn("cache-stats fetch failed:",e));
   fetch("/api/token-info").then(r=>r.json()).then(d=>{
     const el=document.getElementById("token-info");
     if(!el) return;
@@ -1114,7 +1129,7 @@ function renderVibes(clusters){
       const samp=(c.sample_tracks||[]).slice(0,5).map(t=>`
         <div class="sample-row">
           <span>${esc(t.name)} <span style="color:#333"> ${esc(t.artist)}</span></span>
-          <button class="btn btn-xs" onclick="event.stopPropagation();retagTrack('${esc(t.id)}','${esc(id)}')" title="Re-fetch tags">Re-tag</button>
+          <button class="btn btn-xs" onclick="event.stopPropagation();retagTrack('${esc(t.id)}','${esc(id)}',this)" title="Re-fetch tags">Re-tag</button>
         </div>`).join("");
 
       // Pinterest prompts
@@ -1131,9 +1146,9 @@ function renderVibes(clusters){
 
       // AI name suggestions
       const aiSugg = (c.ai_suggestions || []).map(s => `
-        <button class="btn btn-xs" style="border-color:var(--blue); color:var(--blue);"
-                onclick="event.stopPropagation(); document.getElementById('vn-${id}').value='${s.replace(/'/g,"\\'")}'">
-          ${s}
+        <button class="btn btn-xs ai-name-btn" style="border-color:var(--blue); color:var(--blue);"
+                data-target="vn-${id}" data-name="${esc(s)}">
+          ${esc(s)}
         </button>
       `).join('');
 
@@ -1225,7 +1240,9 @@ async function doConfirm(){ doConfirmSelected(); }
 // ── PLAYLISTS ─────────────────────────────────────────────────────────────────
 function renderPlaylists(){
   const grid=document.getElementById("pl-grid");
-  grid.innerHTML=Object.entries(S.playlists||{}).map(([id,pl])=>{
+  const pls=Object.entries(S.playlists||{});
+  if(!pls.length){ grid.innerHTML='<div class="note">No vibes yet — run detection first</div>'; return; }
+  grid.innerHTML=pls.map(([id,pl],idx)=>{
     const h=pl.health||0; const hc=healthClass(h);
     const link=pl.spotify_id
       ?`<a href="https://open.spotify.com/playlist/${pl.spotify_id}" target="_blank" class="badge badge-g">Open</a>`
@@ -1238,7 +1255,7 @@ function renderPlaylists(){
     const diffBadge=lp?`<span style="font-size:9px;color:var(--muted);">+${lp.added_count} −${lp.removed_count}</span>`:'';
     return `<div class="plc">
       <div class="flex jb ac" style="margin-bottom:8px;">
-        <div style="font-size:10px;color:var(--muted);letter-spacing:1.5px;">CLUSTER ${parseInt(id)+1} · ${(pl.track_ids||[]).length} tracks ${diffBadge}</div>
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1.5px;">VIBE ${idx+1} · ${(pl.track_ids||[]).length} tracks ${diffBadge}</div>
         <span class="health ${hc}" style="font-size:10px;">${h}%</span>
       </div>
       <input class="plname" value="${esc(pl.name)}" onblur="saveName(${id},this.value)">
@@ -1325,15 +1342,17 @@ async function openCoverPicker(cid, pid){
       return;
     }
     document.getElementById("cover-grid").innerHTML=d.images.map(img=>`
-      <div onclick="selectCover('${img.url.replace(/'/g,"\\x27")}','${(img.album||'').replace(/'/g,"\\x27")}','${(img.artist||'').replace(/'/g,"\\x27")}')"
-        data-url="${img.url}"
+      <div class="cover-pick" data-url="${esc(img.url)}" data-album="${esc(img.album||'')}" data-artist="${esc(img.artist||'')}"
         style="cursor:pointer;aspect-ratio:1;overflow:hidden;border:2px solid transparent;transition:border-color .15s;"
         onmouseover="this.style.borderColor='var(--green)'"
         onmouseout="this.style.borderColor=(_coverUrl===this.dataset.url)?'var(--green)':'transparent'">
-        <img src="${img.url}" style="width:100%;height:100%;object-fit:cover;" loading="lazy" title="${img.artist} — ${img.album}">
+        <img src="${esc(img.url)}" style="width:100%;height:100%;object-fit:cover;" loading="lazy" title="${esc(img.artist)} — ${esc(img.album)}">
       </div>`).join("");
+    document.querySelectorAll(".cover-pick").forEach(el=>{
+      el.addEventListener("click",()=>selectCover(el.dataset.url,el.dataset.album,el.dataset.artist));
+    });
   }catch(e){
-    document.getElementById("cover-grid").innerHTML=`<div style="grid-column:1/-1;color:var(--red);padding:24px;font-size:12px;">Error: ${e.message}</div>`;
+    document.getElementById("cover-grid").innerHTML=`<div style="grid-column:1/-1;color:var(--red);padding:24px;font-size:12px;">Error: ${esc(e.message)}</div>`;
   }
 }
 
@@ -1467,9 +1486,9 @@ async function moveTrack(trackId, clusterKey){
 }
 
 // ── RE-TAG ────────────────────────────────────────────────────────────────────
-async function retagTrack(trackId, clusterId){
-  const btn = event.target;
-  btn.disabled=true; btn.textContent="...";
+async function retagTrack(trackId, clusterId, btn){
+  if(!btn) btn=event?.target;
+  if(btn){ btn.disabled=true; btn.textContent="..."; }
   const res = await fetch("/api/retag",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({track_id:trackId})});
   const d = await res.json();
@@ -1487,6 +1506,10 @@ function renderInbox(){
   const list  = document.getElementById("inbox-list");
   const empty = document.getElementById("inbox-empty");
   const searchEl = document.getElementById("inbox-search");
+  const ba=document.getElementById("btn-approve-all");
+  const bd=document.getElementById("btn-dismiss-all");
+  if(ba) ba.disabled=!allInbox.length;
+  if(bd) bd.disabled=!allInbox.length;
 
   if(!allInbox.length){
     empty.style.display="block"; list.innerHTML=""; if(searchEl) searchEl.style.display="none"; return;
@@ -1530,6 +1553,8 @@ async function approveTrack(tid){
 }
 
 async function approveAll(){
+  const ba=document.getElementById("btn-approve-all");
+  const bd=document.getElementById("btn-dismiss-all");
   const inbox = S.inbox||[];
   const approvals=[];
   for(const t of inbox){
@@ -1537,6 +1562,7 @@ async function approveAll(){
     if(sel?.value) approvals.push({track_id:t.id,cluster_key:sel.value});
   }
   if(!approvals.length){ showToast("Select a vibe for each track first."); return; }
+  if(ba) ba.disabled=true; if(bd) bd.disabled=true;
   showOv("Approving tracks...");
   await fetch("/api/inbox/approve",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({approvals})});
@@ -1550,6 +1576,9 @@ async function dismissTrack(tid){
 }
 
 async function dismissAll(){
+  const ba=document.getElementById("btn-approve-all");
+  const bd=document.getElementById("btn-dismiss-all");
+  if(ba) ba.disabled=true; if(bd) bd.disabled=true;
   const tids=(S.inbox||[]).map(t=>t.id);
   await fetch("/api/inbox/dismiss",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({track_ids:tids})});
@@ -1564,7 +1593,7 @@ async function loadStats(){
     `<div class="note">No cached tracks yet — run an analysis first.</div>`; return; }
 
   const maxTag = d.top_tags?.[0]?.[1]||1;
-  const tagBars = (d.top_tags||[]).slice(0,15).map(([tag,cnt])=>`
+  const tagBars = (d.top_tags||[]).slice(0,20).map(([tag,cnt])=>`
     <div class="tag-bar-row">
       <div class="tag-bar-name">${tag}</div>
       <div class="tag-bar-track"><div class="tag-bar-fill" style="width:${Math.round(cnt/maxTag*100)}%"></div></div>
@@ -1595,7 +1624,7 @@ async function loadStats(){
         <div class="stat-label">Cached Tracks</div>
       </div>
       <div class="card" style="text-align:center;">
-        <div class="stat-big">${(d.top_tags||[]).length}</div>
+        <div class="stat-big">${d.unique_tags||(d.top_tags||[]).length}</div>
         <div class="stat-label">Unique Tags</div>
       </div>
       <div class="card" style="text-align:center;">

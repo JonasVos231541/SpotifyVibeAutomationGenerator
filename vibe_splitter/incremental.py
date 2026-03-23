@@ -272,7 +272,5 @@ def classify_new_tracks(records, sm=None, state=None, sp=None):
             state["drift_warning"] = True
             if sm:
                 sm.add_log(state, f"Drift detected ({drift_ratio:.0%}) — consider reclustering")
-        else:
-            state.pop("drift_warning", None)
 
     return n_auto, n_low_conf, n_drifted

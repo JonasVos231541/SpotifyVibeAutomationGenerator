@@ -2,6 +2,7 @@
 Data blueprint — state, stats, cache, playlists, overrides, history.
 """
 import os, logging
+from datetime import datetime
 from flask import Blueprint, request, session, jsonify
 
 from .. import config, db
@@ -30,6 +31,28 @@ def api_playlists():
         return jsonify({"error": str(e)}), 500
 
 
+def _inject_drift_info(s):
+    """Compute drift_warning and recluster_age_days from state fields (read-only)."""
+    model_built = s.get("model_built_at")
+    if not model_built:
+        return
+    try:
+        built_dt = datetime.fromisoformat(model_built)
+        age_days = (datetime.now() - built_dt).days
+        s["recluster_age_days"] = age_days
+        if not s.get("drift_warning"):
+            if age_days > config.MODEL_STALE_DAYS:
+                s["drift_warning"] = True
+            model_count = s.get("model_track_count", 0)
+            current_count = len(s.get("known_track_ids", []))
+            if model_count > 0 and current_count > 0:
+                drift_pct = abs(current_count - model_count) / model_count
+                if drift_pct > config.MODEL_TRACK_DRIFT_PCT:
+                    s["drift_warning"] = "auto_recluster"
+    except (ValueError, TypeError):
+        pass
+
+
 @data_bp.route("/api/state")
 def api_state():
     s = sm.load()
@@ -38,6 +61,7 @@ def api_state():
         s["has_ugc_scope"] = "ugc-image-upload" in token.get("scope", "")
         s["has_playlist_read"] = "playlist-read-private" in token.get("scope", "")
         s["token_expires_at"] = token.get("expires_at")
+    _inject_drift_info(s)
     return jsonify(s)
 
 
@@ -53,7 +77,14 @@ def api_cache_stats():
         size_kb = round(os.path.getsize(db.DB_FILE) / 1024)
     except OSError:
         size_kb = 0
-    return jsonify({"cached_tracks": count, "cache_size_kb": size_kb})
+    tagged = db.tagged_track_count()
+    af_count = db.audio_features_count()
+    return jsonify({
+        "cached_tracks": count,
+        "cache_size_kb": size_kb,
+        "tagged_tracks": tagged,
+        "audio_features_tracks": af_count,
+    })
 
 
 @data_bp.route("/api/clear-cache", methods=["POST"])

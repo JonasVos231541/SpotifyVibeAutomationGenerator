@@ -12,7 +12,7 @@ from collections import Counter
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.cluster import KMeans
 
-from . import config
+from . import config, db
 from .embeddings import build_embeddings, build_hybrid_vectors, AUDIO_FEATURE_KEYS
 from .naming import score_axis, energy_band, mood_band, name_all_clusters, generate_vibe_categories
 from .spotify_client import fetch_audio_features
@@ -91,10 +91,18 @@ def build_cluster_dict(records, labels, embeddings=None, key_prefix="",
     for lbl, idx_recs in groups.items():
         sub      = [r for _, r in idx_recs]
         sub_idxs = [i for i, _ in idx_recs]
-        tag_counter = Counter(tag for r in sub for tag in r.get("tags", []))
-        top_tags    = [t for t, _ in tag_counter.most_common(10)]
-        e_score     = score_axis(tag_counter, config.ENERGY_POS, config.ENERGY_NEG)
-        m_score     = score_axis(tag_counter, config.MOOD_POS,   config.MOOD_NEG)
+        # Aggregate real Last.fm tag weights (not just frequency counts)
+        agg_weights = Counter()
+        n_sub = len(sub)
+        for r in sub:
+            for tag, weight in r.get("tag_dict", {}).items():
+                agg_weights[tag] += weight
+        if n_sub > 1:
+            for tag in agg_weights:
+                agg_weights[tag] = agg_weights[tag] / n_sub
+        top_tags    = [t for t, _ in agg_weights.most_common(10)]
+        e_score     = score_axis(agg_weights, config.ENERGY_POS, config.ENERGY_NEG)
+        m_score     = score_axis(agg_weights, config.MOOD_POS,   config.MOOD_NEG)
         key = f"{key_prefix}{lbl}" if key_prefix else str(lbl)
         raw[key] = {
             "sub": sub, "sub_idxs": sub_idxs, "top_tags": top_tags,
@@ -189,7 +197,7 @@ def _enforce_cohesion(records, labels, X, max_fraction=None, cohesion_floor=None
             n_c   = len(X_check)
             upper = sim[np.triu_indices(n_c, k=1)]
             coh   = float(np.mean(upper))
-            should_split = (cnt > soft_max and coh < cohesion_floor) or cnt > hard_max
+            should_split = (cnt > soft_max and coh < cohesion_floor) or (cnt > hard_max and coh < 0.7)
             if should_split:
                 candidates.append((lbl, cnt, coh, idxs))
 
@@ -309,27 +317,37 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
                     "name": cat,
                     "tag_dict": {tag: 50 for tag in cat.split()}
                 })
-            cat_embeddings = build_embeddings(cat_records)
+            # Transform categories using existing TF-IDF pipeline (fit=False)
+            cat_embeddings = build_embeddings(cat_records, fit=False, use_cache=False)
 
-            # Pad category embeddings to match hybrid vector dimensions
-            # (build_embeddings returns TFIDF_DIM-d, but X may be wider after audio/extra fusion)
-            if cat_embeddings.shape[1] < X.shape[1]:
-                pad_width = X.shape[1] - cat_embeddings.shape[1]
-                cat_embeddings = np.hstack([
-                    cat_embeddings,
-                    np.zeros((cat_embeddings.shape[0], pad_width))
-                ])
+            # Verify dimensions match (different pipeline = different vector space)
+            if cat_embeddings.shape[1] != X.shape[1]:
+                # Pad if category embeddings are narrower (missing audio features)
+                if cat_embeddings.shape[1] < X.shape[1]:
+                    pad_width = X.shape[1] - cat_embeddings.shape[1]
+                    cat_embeddings = np.hstack([
+                        cat_embeddings,
+                        np.zeros((cat_embeddings.shape[0], pad_width))
+                    ])
+                else:
+                    # Dimensions incompatible, fall back to HDBSCAN
+                    log.warning("LLM category embeddings have wrong dimensions, falling back to HDBSCAN")
+                    used_llm = False
+                    if sm and state:
+                        sm.add_log(state, "LLM guidance dimension mismatch, falling back to HDBSCAN")
 
-            # Use these as initial centroids for KMeans
-            n_cats = len(categories)
-            # Adjust expected_k to the number of categories
-            expected_k = n_cats
-            min_cs = max(6, min(40, n_tracks // (expected_k * 3)))
+            if not used_llm:
+                pass  # will fall through to HDBSCAN below
+            else:
+                # Use these as initial centroids for KMeans
+                n_cats = len(categories)
+                expected_k = n_cats
+                min_cs = max(6, min(40, n_tracks // (expected_k * 3)))
 
-            # Run KMeans with these centroids as init
-            kmeans = KMeans(n_clusters=n_cats, init=cat_embeddings, n_init=3, max_iter=500, random_state=42)
-            raw_labels = kmeans.fit_predict(X)
-            used_llm = True
+                # With custom init, only 1 initialization needed
+                kmeans = KMeans(n_clusters=n_cats, init=cat_embeddings, n_init=1, max_iter=500, random_state=42)
+                raw_labels = kmeans.fit_predict(X)
+                used_llm = True
         else:
             # Fallback to normal HDBSCAN
             used_llm = False
@@ -357,15 +375,16 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
             sm.add_log(state, f"Found {n_clusters} natural vibes ({n_noise} unassigned)")
             sm.save(state)
 
-        # Assign noise to nearest centroid
+        # Assign noise to nearest centroid (batched for performance)
         if n_clusters > 0 and n_noise > 0:
             centroids = {lbl: X[raw_labels == lbl].mean(axis=0) for lbl in unique if lbl >= 0}
             c_labels  = sorted(centroids.keys())
             c_matrix  = np.array([centroids[l] for l in c_labels])
-            for i in range(len(raw_labels)):
-                if raw_labels[i] == -1:
-                    sims = cosine_similarity(X[i:i+1], c_matrix)[0]
-                    raw_labels[i] = c_labels[np.argmax(sims)]
+            noise_mask = raw_labels == -1
+            if noise_mask.any():
+                sims = cosine_similarity(X[noise_mask], c_matrix)
+                best = np.argmax(sims, axis=1)
+                raw_labels[noise_mask] = np.array([c_labels[b] for b in best])
 
         if n_clusters < 2:
             log.warning(f"Falling back to KMeans K={expected_k}")
@@ -510,11 +529,25 @@ def compute_stats(cache):
     if not cache:
         return {}
     all_tags = Counter(tag for r in cache.values() for tag in r.get("tags", []))
+    audio_feats = db.get_audio_features_batch(list(cache.keys()))
     energy_scores, mood_scores = [], []
-    for r in cache.values():
-        tc = Counter(r.get("tags", []))
-        energy_scores.append(score_axis(tc, config.ENERGY_POS, config.ENERGY_NEG))
-        mood_scores.append(score_axis(tc, config.MOOD_POS,     config.MOOD_NEG))
+    for tid, r in cache.items():
+        tc = Counter(r.get("tag_dict", {}))
+        e = score_axis(tc, config.ENERGY_POS, config.ENERGY_NEG)
+        m = score_axis(tc, config.MOOD_POS,   config.MOOD_NEG)
+        af = audio_feats.get(tid)
+        if af:
+            af_e = af.get("energy", 0.5)
+            af_m = af.get("valence", 0.5)
+            # Smooth blending: stronger tag signal = more tag weight
+            tag_signal_e = abs(e - 0.5) * 2  # 0=neutral, 1=extreme
+            tag_signal_m = abs(m - 0.5) * 2
+            tw_e = 0.3 + 0.4 * tag_signal_e  # 0.3 when neutral, 0.7 when strong
+            tw_m = 0.3 + 0.4 * tag_signal_m
+            e = tw_e * e + (1 - tw_e) * af_e
+            m = tw_m * m + (1 - tw_m) * af_m
+        energy_scores.append(e)
+        mood_scores.append(m)
 
     def bucket(scores, labels):
         buckets = Counter()
@@ -526,6 +559,7 @@ def compute_stats(cache):
 
     return {
         "total_tracks": len(cache),
+        "unique_tags":  len(all_tags),
         "top_tags":     all_tags.most_common(20),
         "energy_dist":  bucket(energy_scores, ["High", "Mid", "Low"]),
         "mood_dist":    bucket(mood_scores,   ["Bright", "Neutral", "Dark"]),

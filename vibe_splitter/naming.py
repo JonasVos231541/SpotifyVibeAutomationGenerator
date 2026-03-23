@@ -8,11 +8,12 @@ Provides:
   - ``generate_ai_names``   — query Ollama for creative names
   - ``generate_vibe_categories`` — ask Ollama to suggest vibe categories for clustering guidance
 """
-import logging, requests
+import re, logging, requests
 from collections import Counter
 from . import config
 
 log = logging.getLogger("splitter.naming")
+_ollama_available = None  # None=untested, True/False=tested
 
 
 # ─── Scoring ──────────────────────────────────────────────────────────────────
@@ -51,6 +52,54 @@ def genre_name_from_tags(top_tags):
     return (best_key, best_desc) if best_key else None
 
 
+# ─── Ollama helpers ──────────────────────────────────────────────────────────
+
+def _clean_ollama_output(text):
+    """Clean LLM output: remove numbering, markdown, quotes, preamble."""
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    cleaned = []
+    for c in lines:
+        c = re.sub(r'^\d+[.)\-]\s*', '', c).strip()
+        c = re.sub(r'\*\*([^*]+)\*\*', r'\1', c).strip()
+        c = c.strip('"\'').strip()
+        if ': ' in c and len(c.split(': ')[0]) < 30:
+            c = c.split(': ')[0].strip()
+        c = c.strip('*').strip('-').strip()
+        if not c or len(c) < 3 or len(c) > 40:
+            continue
+        skip = ['here are', 'based on', 'categories', 'distinct vibe',
+                'vibe category', 'tracks with', 'sample of', 'the following',
+                'sure', 'certainly', 'of course', 'i suggest']
+        if any(p in c.lower() for p in skip):
+            continue
+        cleaned.append(c)
+    return cleaned
+
+
+def _ollama_request(prompt, timeout=15):
+    """Send request to Ollama with connection caching. Returns text or None."""
+    global _ollama_available
+    if _ollama_available is False:
+        return None
+    try:
+        resp = requests.post(config.OLLAMA_URL, json={
+            "model": config.OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0.3}
+        }, timeout=timeout)
+        if resp.status_code == 200:
+            _ollama_available = True
+            return resp.json().get("response", "")
+        _ollama_available = False
+    except (requests.ConnectionError, requests.Timeout) as e:
+        log.warning(f"Ollama unavailable: {e}")
+        _ollama_available = False
+    except Exception as e:
+        log.warning(f"Ollama request failed: {e}")
+    return None
+
+
 # ─── Ollama AI naming ─────────────────────────────────────────────────────────
 
 def generate_ai_names(top_tags, energy, mood):
@@ -61,20 +110,9 @@ def generate_ai_names(top_tags, energy, mood):
 energy level: {energy}, mood: {mood},
 generate 5 creative playlist names (max 3 words each) that capture the vibe.
 Return only the names, one per line."""
-    try:
-        resp = requests.post(config.OLLAMA_URL, json={
-            "model": config.OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": 0.7}
-        }, timeout=30)
-        if resp.status_code == 200:
-            text = resp.json().get("response", "")
-            # Split lines and clean
-            names = [line.strip().strip('"').strip() for line in text.split('\n') if line.strip()]
-            return names[:5]
-    except Exception as e:
-        log.warning(f"Ollama request failed: {e}")
+    text = _ollama_request(prompt)
+    if text:
+        return _clean_ollama_output(text)[:5]
     return None
 
 
@@ -87,14 +125,13 @@ def generate_vibe_categories(records_sample, min_cats=5, max_cats=10):
     """
     if not records_sample:
         return []
-    
-    # Build a summary of the sample: for each track, show top tags and artist
+
     sample_text = ""
-    for i, r in enumerate(records_sample[:30]):  # limit to 30 to avoid huge prompts
+    for i, r in enumerate(records_sample[:30]):
         tags = ", ".join(r.get("tags", [])[:5])
         artist = r.get("artist", "Unknown")
         sample_text += f"{i+1}. Artist: {artist}, Tags: {tags}\n"
-    
+
     prompt = f"""You are a music curator analyzing a diverse set of tracks.
 Here is a sample of {len(records_sample)} tracks with their top tags and artists:
 
@@ -104,38 +141,13 @@ Based on this sample, identify between {min_cats} and {max_cats} distinct vibe c
 Each category should be a short phrase (2-4 words) that describes a vibe (e.g., "Late Night Drive", "Morning Coffee", "Gym Bangers", "Rainy Day Melancholy").
 
 Return ONLY the category names, one per line, with no numbering or extra text."""
-    
-    try:
-        resp = requests.post(config.OLLAMA_URL, json={
-            "model": config.OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": 0.7}
-        }, timeout=30)
-        if resp.status_code == 200:
-            text = resp.json().get("response", "")
-            # Split lines and clean
-            categories = [line.strip().strip('"').strip() for line in text.split('\n') if line.strip()]
-            # Filter junk: preamble, numbered prefixes, too-short/long lines
-            import re as _re
-            cleaned = []
-            for c in categories:
-                c = _re.sub(r'^\d+[.)\-]\s*', '', c).strip()
-                c = c.strip('*').strip()
-                if not c or len(c) < 3 or len(c) > 40:
-                    continue
-                skip = ['here are', 'based on', 'categories', 'distinct vibe',
-                        'vibe category', 'tracks with', 'sample of', 'the following']
-                if any(p in c.lower() for p in skip):
-                    continue
-                cleaned.append(c)
-            categories = cleaned[:max_cats]
-            if len(categories) < min_cats:
-                # If Llama returned too few, pad with generic ones
-                categories.extend(["Mixed Vibes", "Energy Boost", "Chill Out"][:min_cats - len(categories)])
-            return categories
-    except Exception as e:
-        log.warning(f"Llama category generation failed: {e}")
+
+    text = _ollama_request(prompt)
+    if text:
+        categories = _clean_ollama_output(text)[:max_cats]
+        if len(categories) < min_cats:
+            categories.extend(["Mixed Vibes", "Energy Boost", "Chill Out"][:min_cats - len(categories)])
+        return categories
     return []
 
 

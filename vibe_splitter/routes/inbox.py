@@ -23,6 +23,11 @@ def api_inbox_approve():
 
 @inbox_bp.route("/api/inbox/dismiss", methods=["POST"])
 def api_inbox_dismiss():
+    t = _ref()
+    if not t:
+        return jsonify({"error": "Not logged in"}), 401
+    if not request.json:
+        return jsonify({"error": "Invalid request body"}), 400
     tids = set(request.json.get("track_ids", []))
     s = sm.load()
     s["inbox"] = [t for t in s.get("inbox", []) if t["id"] not in tids]
