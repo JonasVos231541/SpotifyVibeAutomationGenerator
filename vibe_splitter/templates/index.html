@@ -9,7 +9,14 @@
 <style>
 :root{--bg:#080808;--s1:#0f0f0f;--s2:#161616;--s3:#1e1e1e;--border:#1f1f1f;--border2:#2a2a2a;
   --green:#1DB954;--green2:#17a349;--text:#efefef;--muted:#555;--muted2:#888;
-  --blue:#6a8fff;--amber:#f0a500;--red:#e84040;}
+  --blue:#6a8fff;--amber:#f0a500;--red:#e84040;
+  --font-display: 'Bebas Neue', sans-serif;
+  --font-body: 'DM Mono', monospace;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --transition-fast: 0.15s ease;
+  --transition-med: 0.3s ease;
+}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-height:100vh;overflow-x:hidden;}
 body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;opacity:.4;
@@ -83,6 +90,14 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
 .fsel,.finp{width:100%;padding:9px 12px;background:var(--s2);border:1px solid var(--border2);
   color:var(--text);font-family:'DM Mono',monospace;font-size:12px;outline:none;transition:border-color .15s;}
 .fsel:focus,.finp:focus{border-color:var(--green);}
+:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+button:focus-visible, .nav-tab:focus-visible, .card:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
 
 /* SOURCE CHIPS */
 .source-chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px;}
@@ -230,6 +245,9 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
 .dist-fill{height:100%;border-radius:4px;}
 .dist-count{width:30px;text-align:right;font-size:11px;color:var(--muted);}
 
+/* COVER MODAL */
+.cover-modal-inner{max-width:560px;width:calc(100% - 32px);background:var(--s1);border:1px solid var(--border2);padding:28px 32px;max-height:90vh;overflow-y:auto;}
+
 /* LOG */
 .loglist{list-style:none;font-size:11px;line-height:1.9;max-height:220px;overflow-y:auto;}
 .loglist li{padding:2px 0;border-bottom:1px solid #111;color:var(--muted);}
@@ -255,7 +273,7 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
 #ov{display:none;position:fixed;inset:0;background:rgba(4,4,4,.96);z-index:200;
   align-items:center;justify-content:center;flex-direction:column;gap:0;}
 #ov.show{display:flex;}
-#ov-box{width:480px;background:var(--s1);border:1px solid var(--border2);padding:32px 36px;}
+#ov-box{max-width:480px;width:calc(100% - 32px);background:var(--s1);border:1px solid var(--border2);padding:32px 36px;}
 #ov-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;margin-bottom:24px;display:flex;align-items:center;gap:12px;}
 .spin{width:16px;height:16px;border:2px solid var(--border2);border-top-color:var(--green);
   border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0;}
@@ -338,23 +356,23 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
     <div id="ov-pbar-wrap"><div id="ov-pbar"></div></div>
     <div id="ov-steps">
       <div class="ov-step" id="ovs-load">
-        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">Approve</div></div>
+        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">&#10003;</div></div>
         <span id="ovs-load-txt">Loading tracks from Spotify</span>
       </div>
       <div class="ov-step" id="ovs-cache">
-        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">Approve</div></div>
+        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">&#10003;</div></div>
         <span id="ovs-cache-txt">Checking tag cache</span>
       </div>
       <div class="ov-step" id="ovs-tag">
-        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">Approve</div></div>
+        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">&#10003;</div></div>
         <span id="ovs-tag-txt">Fetching Last.fm tags</span>
       </div>
       <div class="ov-step" id="ovs-cluster">
-        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">Approve</div></div>
+        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">&#10003;</div></div>
         <span id="ovs-cluster-txt">Clustering vibes with AI embeddings</span>
       </div>
       <div class="ov-step" id="ovs-done">
-        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">Approve</div></div>
+        <div class="ov-step-icon"><div class="step-spin"></div><div class="step-tick">&#10003;</div></div>
         <span id="ovs-done-txt">Ready</span>
       </div>
     </div>
@@ -370,7 +388,7 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
 <!-- COVER PICKER MODAL -->
 <div id="cover-modal" style="display:none;position:fixed;inset:0;background:rgba(4,4,4,.96);z-index:300;
   align-items:center;justify-content:center;">
-  <div style="width:560px;background:var(--s1);border:1px solid var(--border2);padding:28px 32px;max-height:90vh;overflow-y:auto;">
+  <div class="cover-modal-inner">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;">Pick Cover Image</div>
       <button class="btn btn-sm" onclick="closeCoverModal()">Close</button>
@@ -401,7 +419,7 @@ body::before{content:'';position:fixed;top:0;left:0;right:0;height:1px;
   {% if logged_in %}
   <div class="flex gap-12 ac">
     <div class="lfm"><div class="lfm-d" id="lfm-dot"></div>Last.fm</div>
-    <a href="/logout" class="btn">Logout</a>
+    <a href="#" class="btn" onclick="doLogout(); return false;">Logout</a>
   </div>
   {% endif %}
 </header>
@@ -691,7 +709,7 @@ document.addEventListener("DOMContentLoaded",async()=>{
 
 function updateProgress(d){
   // Update progress UI from SSE progress event
-  const bar = document.getElementById("progress-fill");
+  const bar = document.getElementById("ov-pbar");
   if(bar && d.pct != null) bar.style.width = d.pct + "%";
   // Update screen reader status
   const sr = document.getElementById("sr-status");
@@ -782,7 +800,7 @@ async function sync(){
 
   // Logs
   const ll = document.getElementById("loglist");
-  if(S.logs?.length) ll.innerHTML = S.logs.map(l=>`<li>${l}</li>`).join("");
+  if(S.logs?.length) ll.innerHTML = S.logs.map(l=>`<li>${esc(l)}</li>`).join("");
 
   // Last times
   const lt = document.getElementById("ltimes");
@@ -853,16 +871,16 @@ function renderEnsemble(data){
   let html = "";
   for(let [name, clusters] of Object.entries(data)){
     if(clusters.error){
-      html += `<div class="card"><div class="ctitle">${name}</div><div class="vdesc">Error: ${clusters.error}</div></div>`;
+      html += `<div class="card"><div class="ctitle">${esc(name)}</div><div class="vdesc">Error: ${esc(clusters.error)}</div></div>`;
       continue;
     }
     let clusterHtml = clusters.map(c => `
       <div style="margin-bottom:8px;">
         <span style="font-size:12px; font-weight:bold;">${c.size} tracks</span>
-        <div class="tags">${c.top_tags.slice(0,5).map(t=>`<span class="tag">${t}</span>`).join('')}</div>
+        <div class="tags">${c.top_tags.slice(0,5).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</div>
       </div>
     `).join('');
-    html += `<div class="card" onclick="selectEnsemble('${name}')" style="cursor:pointer;" data-name="${name}">
+    html += `<div class="card" onclick="selectEnsemble('${esc(name)}', event)" style="cursor:pointer;" data-name="${esc(name)}">
       <div class="ctitle">${name.toUpperCase()}</div>
       ${clusterHtml}
     </div>`;
@@ -871,10 +889,10 @@ function renderEnsemble(data){
 }
 
 let selectedEnsemble = null;
-function selectEnsemble(name){
+function selectEnsemble(name, evt){
   selectedEnsemble = name;
   document.querySelectorAll("#ensemble-grid .card").forEach(c => c.classList.remove("selected"));
-  event.currentTarget.classList.add("selected");
+  evt && evt.currentTarget && evt.currentTarget.classList.add("selected");
 }
 
 function useEnsembleSelection(){
@@ -913,8 +931,8 @@ function renderSourceChips(){
   document.getElementById("source-chips").innerHTML =
     selectedSources.map(s=>`
       <div class="chip active">
-        ${s.name}
-        <span class="chip-x" onclick="removeSource('${s.id}')">x</span>
+        ${esc(s.name)}
+        <span class="chip-x" onclick="removeSource('${esc(s.id)}')">x</span>
       </div>`).join("");
 }
 
@@ -967,8 +985,8 @@ async function runPreview(){
       try {
         const s = await fetch("/api/state").then(r=>r.json());
         const latest = s.logs?.[0] || "";
-        if(latest.includes("DONE:")) { clearInterval(check); resolve(s); }
-        if(latest.includes("Error:")) { clearInterval(check); reject(new Error(latest.replace(/\[.*?\]\s*/,""))); }
+        if(latest.includes("DONE:")) { clearInterval(check); resolve(s); return; }
+        else if(latest.includes("Error:")) { clearInterval(check); reject(new Error(latest.replace(/\[.*?\]\s*/,""))); return; }
       } catch(e) { /* keep polling */ }
     }, 1000);
     setTimeout(() => { clearInterval(check); reject(new Error("Timeout after 15 minutes")); }, 900000);
@@ -1227,11 +1245,14 @@ async function doConfirmSelected(){
   const res=await fetch("/api/confirm-selected",{
     method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({selected, names, redistribute})});
+  const d = await res.json().catch(() => ({}));
   hideOv();
-  if((await res.json()).ok){
+  if(d.ok){
     await sync();
     document.getElementById("tab-playlists").style.display="";
     showTab("playlists");
+  } else {
+    showToast(d.error || "Failed to confirm vibes.", "error");
   }
 }
 
@@ -1258,7 +1279,7 @@ function renderPlaylists(){
         <div style="font-size:10px;color:var(--muted);letter-spacing:1.5px;">VIBE ${idx+1} · ${(pl.track_ids||[]).length} tracks ${diffBadge}</div>
         <span class="health ${hc}" style="font-size:10px;">${h}%</span>
       </div>
-      <input class="plname" value="${esc(pl.name)}" onblur="saveName(${id},this.value)">
+      <input class="plname" value="${esc(pl.name)}" onblur="saveName('${esc(id)}',this.value)">
       <div style="display:flex;justify-content:flex-end;gap:6px;">${histBtn}${coverBtn}${link}</div>
     </div>`;
   }).join("");
@@ -1272,7 +1293,7 @@ async function showHistory(key){
   html+=`<b>Added ${d.added_count}:</b> ${d.added.map(t=>esc(t.name)).join(", ")||"none"}<br>`;
   html+=`<b>Removed ${d.removed_count}:</b> ${d.removed.map(t=>esc(t.name)).join(", ")||"none"}<br>`;
   html+=`<b>Total:</b> ${d.total} tracks`;
-  showToast(html);
+  showToast(html, "info", true);
 }
 
 async function checkDuplicates(){
@@ -1663,6 +1684,10 @@ async function clearCache(){
   await sync();
 }
 
+function doLogout(){
+  fetch('/logout', {method:'POST'}).then(()=>{ window.location.href='/'; }).catch(()=>{ window.location.href='/'; });
+}
+
 async function wipeToken(){
   if(!confirm("This will log you out and wipe all cached tokens. You'll need to log in again. Continue?")) return;
   await fetch("/api/wipe-token",{method:"POST"});
@@ -1778,12 +1803,16 @@ function hideOvError(msg){
   }, 3000);
 }
 
-function showToast(msg, isErr=false){
+function showToast(msg, type="info", isHtml=false){
+  // Legacy boolean second arg support
+  if(type===true || type===false) { isHtml=false; type=type?"error":"info"; }
   let c=document.getElementById("toast-container");
   if(!c){c=document.createElement("div");c.id="toast-container";c.className="toast-container";document.body.appendChild(c);}
   const t=document.createElement("div");
-  t.className="toast "+(isErr?"error":"success");
-  const span=document.createElement("span");span.textContent=msg;
+  t.className="toast "+(type==="error"?"error":type==="success"?"success":type==="warning"?"warning":"info");
+  const span=document.createElement("span");
+  if(isHtml) span.innerHTML=msg;
+  else span.textContent=msg;
   const btn=document.createElement("button");btn.className="toast-close";btn.innerHTML="&times;";
   btn.onclick=()=>t.remove();
   t.appendChild(span);t.appendChild(btn);

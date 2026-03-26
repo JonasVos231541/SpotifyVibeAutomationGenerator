@@ -8,7 +8,7 @@ Provides:
   - ``generate_ai_names``   — query Ollama for creative names
   - ``generate_vibe_categories`` — ask Ollama to suggest vibe categories for clustering guidance
 """
-import re, logging, requests
+import re, logging, math, requests
 from collections import Counter
 from . import config
 
@@ -19,14 +19,19 @@ _ollama_available = None  # None=untested, True/False=tested
 # ─── Scoring ──────────────────────────────────────────────────────────────────
 
 def score_axis(tag_counter, pos_set, neg_set):
-    """Score a cluster on one axis (0 = negative, 0.5 = neutral, 1 = positive)."""
+    """
+    Score a cluster on one axis (0=negative, 0.5=neutral, 1=positive).
+
+    Uses log-normalisation so tag weights of 30 vs 90 produce meaningfully
+    different contributions. Weight per tag is SCORE_AXIS_WEIGHT (config.py).
+    """
     score, hits = 0.5, 0
     for tag, count in tag_counter.items():
-        w = min(count / 100.0, 1.0)
+        w = math.log1p(max(0, count)) / math.log1p(100)
         if tag in pos_set:
-            score += 0.4 * w; hits += 1
+            score += config.SCORE_AXIS_WEIGHT * w; hits += 1
         elif tag in neg_set:
-            score -= 0.4 * w; hits += 1
+            score -= config.SCORE_AXIS_WEIGHT * w; hits += 1
     return max(0.0, min(1.0, score if hits else 0.5))
 
 
@@ -177,7 +182,20 @@ def _generate_cluster_name(top_tags, e_band, m_band, genre_key=None, shared_tags
     elif tags:
         flavour = {"high": "Energy", "low": "Chill", "mid": ""}.get(e_band, "")
         return f"{tags[0]} {flavour}" if flavour else tags[0]
-    return "Mixed Vibes"
+    # Quadrant fallback: when all tags are shared/uninformative, use energy×mood
+    # to produce a name that's always distinctive across clusters.
+    _quadrant = {
+        ("high", "bright"):  "High Energy · Bright",
+        ("high", "neutral"): "High Energy · Balanced",
+        ("high", "dark"):    "High Energy · Dark",
+        ("mid",  "bright"):  "Mid Energy · Warm",
+        ("mid",  "neutral"): "Mid Energy · Balanced",
+        ("mid",  "dark"):    "Mid Energy · Moody",
+        ("low",  "bright"):  "Chill · Uplifting",
+        ("low",  "neutral"): "Chill · Balanced",
+        ("low",  "dark"):    "Chill · Melancholic",
+    }
+    return _quadrant.get((e_band, m_band), "Mixed Vibes")
 
 
 def _generate_description(top_tags, e_band, m_band):

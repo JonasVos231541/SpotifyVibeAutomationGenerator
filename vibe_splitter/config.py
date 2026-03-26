@@ -22,9 +22,8 @@ _LEGACY_PKL     = "splitter_model.pkl"
 CACHE_FILE = os.getenv("VS_CACHE_FILE", "track_cache.json")
 
 # ─── Secrets ──────────────────────────────────────────────────────────────────
-_DEFAULT_SPOTIFY_ID = "a6bf501625094fb883515e5fe1644a1f"
-SPOTIFY_CLIENT_ID     = os.getenv("SPOTIFY_CLIENT_ID",     _DEFAULT_SPOTIFY_ID)
-SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET", "dfd2ae8d1c0d46a0b11f0f3ba3fd5e7a")
+SPOTIFY_CLIENT_ID     = os.getenv("SPOTIFY_CLIENT_ID")
+SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIFY_REDIRECT_URI  = os.getenv("SPOTIFY_REDIRECT_URI",  "http://127.0.0.1:5000/callback")
 SPOTIFY_SCOPE         = os.getenv("SPOTIFY_SCOPE",
     "user-library-read playlist-read-private "
@@ -32,14 +31,22 @@ SPOTIFY_SCOPE         = os.getenv("SPOTIFY_SCOPE",
     "ugc-image-upload"
 )
 
-if SPOTIFY_CLIENT_ID == _DEFAULT_SPOTIFY_ID:
-    log.warning("Using default Spotify credentials — set SPOTIFY_CLIENT_ID and "
-                "SPOTIFY_CLIENT_SECRET env vars for production use")
+if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET not set — app will not function without these"
+    )
 
 SPOTIFY_CACHE_PATH = os.getenv("SPOTIPY_CACHE_PATH", ".spotify_cache")
 
-LASTFM_API_KEY = os.getenv("LASTFM_API_KEY", "7ff67730e8779cc77d664cae9ecb21c5")
+LASTFM_API_KEY = os.getenv("LASTFM_API_KEY")
 LASTFM_BASE    = os.getenv("LASTFM_BASE",    "https://ws.audioscrobbler.com/2.0/")
+
+if not LASTFM_API_KEY:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "LASTFM_API_KEY not set — Last.fm tag fetching will be disabled"
+    )
 
 # Flask secret key — auto-generate and persist if not configured
 def _get_secret_key():
@@ -94,14 +101,54 @@ AUDIO_IMPORTANCE = {
     "speechiness": 0.6, "mode": 0.5, "liveness": 0.4, "loudness": 0.8,
 }
 
+# ─── Audio feature type separation ───────────────────────────────────────────
+# Continuous features are Z-scored; binary features are scaled to [-0.5, 0.5]
+AUDIO_CONTINUOUS_KEYS = [
+    "danceability", "energy", "valence", "acousticness",
+    "instrumentalness", "tempo", "speechiness", "liveness", "loudness",
+]
+AUDIO_BINARY_KEYS = ["mode"]  # 0=minor, 1=major — never Z-score
+
+# ─── Tempo normalisation (logistic, replaces hard cap at 200 BPM) ─────────────
+TEMPO_CENTER    = float(os.getenv("VS_TEMPO_CENTER",    "120.0"))  # inflection point
+TEMPO_LOGISTIC_K = float(os.getenv("VS_TEMPO_LOGISTIC_K", "0.03"))  # steepness
+
+# ─── Adaptive audio weight (based on tag coverage per track) ─────────────────
+# Format: list of (min_tags_exclusive, weight) sorted ascending by min_tags.
+# A track with N tags uses the weight from the last entry where min_tags <= N.
+ADAPTIVE_AUDIO_WEIGHT_THRESHOLDS = [
+    (0,  float(os.getenv("VS_AUDIO_WEIGHT_ZERO_TAGS", "0.65"))),   # 0 tags
+    (5,  float(os.getenv("VS_AUDIO_WEIGHT_FEW_TAGS",  "0.40"))),   # 1–4 tags
+    (15, float(os.getenv("VS_AUDIO_WEIGHT_MID_TAGS",  "0.25"))),   # 5–14 tags
+    # 15+ tags → falls back to AUDIO_WEIGHT base
+]
+
+# ─── Embedding artist weight (artist context separated from semantic vector) ──
+ARTIST_EMBEDDING_WEIGHT = float(os.getenv("VS_ARTIST_EMBEDDING_WEIGHT", "0.05"))
+
+# ─── TF-IDF staleness detection ───────────────────────────────────────────────
+EMBED_MODEL = os.getenv("VS_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+
+# ─── Cohesion metric approximation ───────────────────────────────────────────
+COHESION_SAMPLE_PAIRS = int(os.getenv("VS_COHESION_SAMPLE_PAIRS", "50"))  # random pairs for O(n) estimate
+
+# ─── Cohesion split max sub-clusters ─────────────────────────────────────────
+COHESION_SPLIT_MAX_K = int(os.getenv("VS_COHESION_SPLIT_MAX_K", "5"))  # silhouette-guided
+
+# ─── Per-cluster confidence threshold floor ───────────────────────────────────
+AUTO_ASSIGN_THRESHOLD_MIN = float(os.getenv("VS_AUTO_ASSIGN_THRESHOLD_MIN", "0.70"))
+
+# ─── Naming: score_axis weight and zero-tag warning ──────────────────────────
+SCORE_AXIS_WEIGHT  = float(os.getenv("VS_SCORE_AXIS_WEIGHT",  "0.4"))  # per-tag contribution
+ZERO_TAG_WARN_PCT  = float(os.getenv("VS_ZERO_TAG_WARN_PCT",  "0.20"))  # warn if >20% tracks have zero tags
+
 # ─── ReccoBeats (free Spotify audio_features replacement) ─────────────────
 RECCOBEATS_BASE     = os.getenv("VS_RECCOBEATS_BASE", "https://api.reccobeats.com/v1")
 RECCOBEATS_BATCH    = int(os.getenv("VS_RECCOBEATS_BATCH", "5"))
 RECCOBEATS_DELAY    = float(os.getenv("VS_RECCOBEATS_DELAY", "0.6"))
 TOP_N_TAGS          = int(os.getenv("VS_TOP_N_TAGS",            "100"))
 MIN_TAG_DF          = int(os.getenv("VS_MIN_TAG_DF",            "2"))
-TFIDF_DIM           = int(os.getenv("VS_TFIDF_DIM",            "128"))
-TFIDF_MODEL_FILE    = os.getenv("VS_TFIDF_MODEL_FILE", "tfidf_pipeline.pkl")
+EMBED_DIM           = int(os.getenv("VS_EMBED_DIM",            "384"))
 
 # ─── Granularity range (for slider) ────────────────────────────────────────────
 GRANULARITY_MIN     = int(os.getenv("VS_GRANULARITY_MIN",       "1"))

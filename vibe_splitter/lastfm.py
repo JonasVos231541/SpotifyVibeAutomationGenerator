@@ -61,7 +61,7 @@ def get_track_tags(artist, track):
     tags = data.get("toptags", {}).get("tag", [])
     if isinstance(tags, dict):
         tags = [tags]
-    return [(t["name"].lower(), int(t["count"])) for t in tags[:15]]
+    return [(t["name"].lower(), int(t.get("count") or 0)) for t in tags[:15]]
 
 
 def get_artist_tags(artist):
@@ -73,7 +73,7 @@ def get_artist_tags(artist):
     tags = data.get("toptags", {}).get("tag", [])
     if isinstance(tags, dict):
         tags = [tags]
-    return [(t["name"].lower(), int(t["count"])) for t in tags[:10]]
+    return [(t["name"].lower(), int(t.get("count") or 0)) for t in tags[:10]]
 
 
 def fetch_and_cache_track(track_obj, sp=None, artist_cache=None, artist_lock=None):
@@ -157,9 +157,11 @@ def build_vectors(tracks, sm, state, cb=None, sp=None):
     total_cached = len(cached_ids)
 
     if total_new == 0:
-        sm.add_log(state, f"All {len(tracks)} tracks cached — no Last.fm fetch needed!")
+        if state is not None:
+            sm.add_log(state, f"All {len(tracks)} tracks cached — no Last.fm fetch needed!")
     else:
-        sm.add_log(state, f"{total_cached} cached · fetching {total_new} new tracks from Last.fm ({config.LASTFM_WORKERS} workers)...")
+        if state is not None:
+            sm.add_log(state, f"{total_cached} cached · fetching {total_new} new tracks from Last.fm ({config.LASTFM_WORKERS} workers)...")
 
     if total_new > 0:
         artist_cache = {}
@@ -209,7 +211,8 @@ def build_vectors(tracks, sm, state, cb=None, sp=None):
         if batch_entries:
             db.upsert_tracks_batch(batch_entries)
 
-        sm.add_log(state, f"Cache saved — {total_cached + total_new} tracks total")
+        if state is not None:
+            sm.add_log(state, f"Cache saved — {total_cached + total_new} tracks total")
 
     # Load results from DB for all requested tracks
     all_ids = [t["id"] for t in tracks]

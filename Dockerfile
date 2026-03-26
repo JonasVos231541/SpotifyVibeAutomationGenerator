@@ -22,12 +22,14 @@ COPY vibe_splitter/ vibe_splitter/
 # Create data directory (will be mounted as persistent volume)
 RUN mkdir -p /data
 
+# Pre-download the embedding model so first request isn't slow
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('sentence-transformers/all-MiniLM-L6-v2')"
+
 # Environment: point all file paths to persistent volume
 ENV VS_DB_FILE=/data/vibe_splitter.db \
     VS_STATE_FILE=/data/splitter_state.json \
     VS_MODEL_FILE=/data/splitter_model.npz \
     VS_MODEL_META_FILE=/data/splitter_model_meta.json \
-    VS_TFIDF_MODEL_FILE=/data/tfidf_pipeline.pkl \
     VS_CACHE_FILE=/data/track_cache.json \
     VS_LOG_FILE=/data/vibe_splitter.log \
     VS_LOG_FORMAT=json \

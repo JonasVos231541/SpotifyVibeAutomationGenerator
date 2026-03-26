@@ -50,7 +50,7 @@ def callback():
     return redirect("/")
 
 
-@auth_bp.route("/logout")
+@auth_bp.route("/logout", methods=["POST"])
 def logout():
     session.clear()
     sm.clear_token()

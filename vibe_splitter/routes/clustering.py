@@ -90,6 +90,7 @@ def api_preview():
 
 
 @clustering_bp.route("/api/preview-ensemble", methods=["POST"])
+@rate_limit(60)
 def api_preview_ensemble():
     """Return 3 alternative clusterings (HDBSCAN, KMeans5, KMeans10) as summaries."""
     t = _ref()

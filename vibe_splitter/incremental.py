@@ -224,7 +224,7 @@ def classify_new_tracks(records, sm=None, state=None, sp=None):
         if not centroids:
             # Legacy model without semantic centroids — use hybrid centroids
             centroids = model.get("centroids", {})
-            embed_dim = model.get("embed_dim", config.TFIDF_DIM)
+            embed_dim = model.get("embed_dim", config.EMBED_DIM)
             hybrid_dim = model.get("hybrid_dim", embed_dim)
             if hybrid_dim != embed_dim and centroids:
                 # Truncate hybrid centroids to semantic dimensions as best-effort
@@ -233,6 +233,15 @@ def classify_new_tracks(records, sm=None, state=None, sp=None):
 
     if not centroids:
         return 0, 0, 0
+
+    # Use calibrated thresholds from model if available, else fall back to config
+    global_threshold = model.get("calibrated_threshold", config.AUTO_ASSIGN_THRESHOLD)
+    per_cluster_thresholds = model.get("per_cluster_thresholds", {})
+    # Ensure keys are correct type (JSON stores them as strings)
+    per_cluster_thresholds = {
+        (int(k) if k.lstrip("-").isdigit() else k): v
+        for k, v in per_cluster_thresholds.items()
+    }
 
     n_auto, n_low_conf, n_drifted = 0, 0, 0
 
@@ -243,8 +252,9 @@ def classify_new_tracks(records, sm=None, state=None, sp=None):
         rec["classification_confidence"] = round(conf, 3)
         rec["cluster_probabilities"] = probs
 
-        # Auto-assign if confidence is very high
-        if conf >= config.AUTO_ASSIGN_THRESHOLD:
+        # Auto-assign using per-cluster threshold if available, else global
+        threshold = per_cluster_thresholds.get(lbl, global_threshold)
+        if conf >= threshold:
             rec["auto_assigned"] = True
             n_auto += 1
         else:

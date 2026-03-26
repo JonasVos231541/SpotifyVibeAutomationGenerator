@@ -350,9 +350,13 @@ def fetch_audio_features(sp, track_ids, sm=None, state=None):
     backoff = 1
     for i in range(0, len(to_fetch), 100):
         batch = to_fetch[i:i+100]
+        if not _rate_budget.can_call():
+            log.warning("Rate budget exhausted, stopping audio feature fetch")
+            break
         try:
             results = sp.audio_features(batch)
             if results:
+                _rate_budget.record()
                 for tid, feat in zip(batch, results):
                     if feat:
                         new_features[tid] = {k: float(feat.get(k, 0.0)) for k in KEYS}

@@ -6,19 +6,42 @@ Entry points:
   - ``split_cluster``    — hierarchical sub-split
   - ``compute_health``   — cohesion + separation metric
 """
-import json, logging, random
+import json, logging, random, os, tempfile
 import numpy as np
 from collections import Counter
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 
 from . import config, db
 from .embeddings import build_embeddings, build_hybrid_vectors, AUDIO_FEATURE_KEYS
+from .incremental import _classify_with_confidence
 from .naming import score_axis, energy_band, mood_band, name_all_clusters, generate_vibe_categories
 from .spotify_client import fetch_audio_features
 from .events import publish as sse_publish
 
 log = logging.getLogger("splitter.clustering")
+
+
+# ─── Atomic model save ────────────────────────────────────────────────────────
+
+def _atomic_savez(path, **arrays):
+    """
+    Write a .npz file atomically: write to a temp file first, then os.replace().
+    Prevents concurrent readers from loading a partially-written model file.
+    """
+    dir_ = os.path.dirname(os.path.abspath(path))
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=dir_, suffix=".tmp.npz")
+    os.close(tmp_fd)
+    try:
+        np.savez(tmp_path, **arrays)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 # ─── Health metric (cohesion + separation) ────────────────────────────────────
@@ -38,14 +61,19 @@ def compute_health(vectors, all_centroids=None, cluster_label=None):
     norms = np.linalg.norm(X, axis=1, keepdims=True)
     norms[norms == 0] = 1
     X = X / norms
-    if len(X) > 150:
-        idx = np.random.choice(len(X), 150, replace=False)
-        X = X[idx]
-
-    sim   = cosine_similarity(X)
-    n     = len(X)
-    upper = sim[np.triu_indices(n, k=1)]
-    cohesion = float(np.mean(upper))
+    # O(n) random-pair approximation instead of O(n²) full matrix.
+    # For L2-normalised vectors, dot product = cosine similarity.
+    n_pairs = min(config.COHESION_SAMPLE_PAIRS, len(X) * (len(X) - 1) // 2)
+    if n_pairs < 2:
+        cohesion = float(np.dot(X[0], X[1])) if len(X) >= 2 else 1.0
+    else:
+        idx_a = np.random.randint(0, len(X), n_pairs)
+        idx_b = np.random.randint(0, len(X), n_pairs)
+        mask  = idx_a != idx_b
+        if mask.sum() == 0:
+            cohesion = 1.0
+        else:
+            cohesion = float(np.mean(np.sum(X[idx_a[mask]] * X[idx_b[mask]], axis=1)))
 
     separation = 1.0
     if all_centroids is not None and cluster_label is not None:
@@ -188,6 +216,8 @@ def _enforce_cohesion(records, labels, X, max_fraction=None, cohesion_floor=None
         counts     = Counter(labels)
         candidates = []
         for lbl, cnt in counts.items():
+            if lbl == -1:
+                continue
             if cnt < 8:
                 continue
             idxs  = [i for i, l in enumerate(labels) if l == lbl]
@@ -206,19 +236,38 @@ def _enforce_cohesion(records, labels, X, max_fraction=None, cohesion_floor=None
         candidates.sort(key=lambda x: (-x[1], x[2]))
         lbl, cnt, coh, idxs = candidates[0]
         X_sub = X[idxs]
-        km2 = KMeans(n_clusters=2, random_state=n_splits, n_init=10, max_iter=300)
-        sub_labels = km2.fit_predict(X_sub)
-        g0 = sum(1 for s in sub_labels if s == 0)
-        g1 = sum(1 for s in sub_labels if s == 1)
+
+        # Silhouette-guided best-k: find the natural number of sub-clusters
+        # instead of always forcing a binary split.
+        max_k = min(config.COHESION_SPLIT_MAX_K, len(idxs) // 5, len(idxs) - 1)
+        best_k, best_score = 2, -1.0
+        for k in range(2, max(3, max_k + 1)):
+            try:
+                trial_labels = KMeans(n_clusters=k, random_state=n_splits,
+                                      n_init=5, max_iter=200).fit_predict(X_sub)
+                score = silhouette_score(X_sub, trial_labels, metric="cosine")
+                if score > best_score:
+                    best_score, best_k = score, k
+            except Exception:
+                break
+
+        km = KMeans(n_clusters=best_k, random_state=n_splits, n_init=10, max_iter=300)
+        sub_labels = km.fit_predict(X_sub)
+        group_sizes = Counter(sub_labels)
         min_group = max(5, int(cnt * 0.1))
-        if g0 < min_group or g1 < min_group:
-            log.info(f"  Cohesion split: can't split {lbl} ({cnt}, coh={coh:.2f}) ({g0}/{g1})")
+        if min(group_sizes.values()) < min_group:
+            log.info(f"  Cohesion split: can't split {lbl} ({cnt}, coh={coh:.2f}) — groups too small")
             break
+        # Assign new labels to all sub-groups except the first (keeps original label)
+        lbl_map = {s: (lbl if s == 0 else next_lbl + s - 1) for s in group_sizes}
+        n_new = best_k - 1
         for pos, sub_lbl in zip(idxs, sub_labels):
-            if sub_lbl == 1:
-                labels[pos] = next_lbl
-        log.info(f"  Cohesion split: {lbl} ({cnt}, coh={coh:.2f}) → {lbl}({g0}) + {next_lbl}({g1})")
-        next_lbl += 1
+            labels[pos] = lbl_map[sub_lbl]
+        log.info(
+            f"  Cohesion split: {lbl} ({cnt}, coh={coh:.2f}) → "
+            f"{best_k} sub-clusters {[group_sizes[s] for s in range(best_k)]}"
+        )
+        next_lbl += n_new
         n_splits += 1
     return labels
 
@@ -302,6 +351,7 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
         )
 
         if categories and len(categories) >= 3:
+            used_llm = False
             log.info(f"Llama suggested {len(categories)} vibe categories: {categories}")
             if sm and state:
                 sm.add_log(state, f"Llama suggested {len(categories)} vibe categories")
@@ -375,16 +425,9 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
             sm.add_log(state, f"Found {n_clusters} natural vibes ({n_noise} unassigned)")
             sm.save(state)
 
-        # Assign noise to nearest centroid (batched for performance)
-        if n_clusters > 0 and n_noise > 0:
-            centroids = {lbl: X[raw_labels == lbl].mean(axis=0) for lbl in unique if lbl >= 0}
-            c_labels  = sorted(centroids.keys())
-            c_matrix  = np.array([centroids[l] for l in c_labels])
-            noise_mask = raw_labels == -1
-            if noise_mask.any():
-                sims = cosine_similarity(X[noise_mask], c_matrix)
-                best = np.argmax(sims, axis=1)
-                raw_labels[noise_mask] = np.array([c_labels[b] for b in best])
+        # NOTE: Noise assignment (HDBSCAN label=-1) is intentionally deferred.
+        # It will be applied AFTER cohesion enforcement and tiny-cluster merging
+        # so that outliers do not inflate cluster sizes during the refinement phase.
 
         if n_clusters < 2:
             log.warning(f"Falling back to KMeans K={expected_k}")
@@ -425,32 +468,65 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
             "std_dist":  float(np.std(dists)),
             "count":     len(mask),
         }
-    # Save model as npz (arrays) + json (metadata) — no pickle
-    _save_arrays = {}
-    for lbl, c in centroids_save.items():
-        _save_arrays[f"centroid_{lbl}"] = np.asarray(c)
-    for lbl, c in semantic_centroids.items():
-        _save_arrays[f"sem_centroid_{lbl}"] = np.asarray(c)
-    np.savez(config.MODEL_FILE, **_save_arrays)
+    # ── Calibrate auto-assign thresholds using held-out data ─────────────
+    # Hold out ~12% of tracks, classify them against centroids, and find
+    # the global threshold that achieves ~95% accuracy. Also compute
+    # per-cluster thresholds (10th percentile confidence of correct predictions).
+    calibrated_threshold = config.AUTO_ASSIGN_THRESHOLD
+    per_cluster_thresholds = {}
+    n_total = len(labels)
+    holdout_n = max(5, int(n_total * 0.12))
 
-    _meta = {
-        "version": 3,
-        "type": "hybrid_embeddings",
-        "centroid_keys": [str(k) for k in centroids_save.keys()],
-        "centroid_stats": {str(k): v for k, v in centroid_stats.items()},
-        "audio_weight": config.AUDIO_WEIGHT if audio_feats else 0.0,
-        "audio_stats": {str(k): v for k, v in (audio_stats or {}).items()},
-        "audio_feature_keys": list(AUDIO_FEATURE_KEYS),
-        "embed_dim": int(X_embed.shape[1]),
-        "hybrid_dim": int(X.shape[1]),
-        "has_audio": bool(audio_feats),
-        "has_extra": extra_features is not None,
-        "hdbscan_metric": "euclidean (L2-normalized)",
-    }
-    with open(config.MODEL_META_FILE, "w") as f:
-        json.dump(_meta, f, indent=2)
+    if n_total >= 30:  # need enough data for meaningful calibration
+        holdout_idx = random.sample(range(n_total), holdout_n)
+        holdout_set = set(holdout_idx)
 
-    sse_publish("progress", {"step": "model_saved", "pct": 80})
+        # Build centroids from non-holdout tracks only
+        cal_label_groups = {}
+        for i, lbl in enumerate(labels):
+            if i not in holdout_set:
+                cal_label_groups.setdefault(lbl, []).append(i)
+
+        cal_centroids = {}
+        for lbl, idxs in cal_label_groups.items():
+            cal_centroids[lbl] = X[idxs].mean(axis=0)
+
+        # Classify holdout tracks and collect confidences
+        correct_confs = []         # confidences of correctly classified tracks
+        per_cluster_confs = {}     # per-cluster correct confidences
+        for idx in holdout_idx:
+            true_label = labels[idx]
+            vec = X[idx]
+            pred_label, conf, _, _, _ = _classify_with_confidence(
+                vec, cal_centroids, centroid_stats)
+            if pred_label == true_label:
+                correct_confs.append(conf)
+                per_cluster_confs.setdefault(true_label, []).append(conf)
+
+        # Global threshold: find value where 95% of correct predictions pass
+        if len(correct_confs) >= 5:
+            correct_confs.sort()
+            idx_95 = max(0, int(len(correct_confs) * 0.05))  # 5th percentile
+            calibrated_threshold = max(
+                config.AUTO_ASSIGN_THRESHOLD_MIN,
+                min(0.98, correct_confs[idx_95])
+            )
+            log.info(f"Calibrated global threshold: {calibrated_threshold:.3f} "
+                     f"(from {len(correct_confs)} correct holdout predictions)")
+
+        # Per-cluster thresholds: 10th percentile of correct confidences
+        for lbl, confs in per_cluster_confs.items():
+            if len(confs) >= 3:
+                confs.sort()
+                p10_idx = max(0, int(len(confs) * 0.10))
+                cluster_thresh = max(
+                    config.AUTO_ASSIGN_THRESHOLD_MIN,
+                    min(0.98, confs[p10_idx])
+                )
+                per_cluster_thresholds[lbl] = cluster_thresh
+    else:
+        log.info(f"Too few tracks ({n_total}) for threshold calibration, using default")
+
     if sm and state:
         sm.add_log(state, "Refining clusters by cohesion..."); sm.save(state)
     labels = _enforce_cohesion(records, labels, X, max_fraction=max_frac)
@@ -484,13 +560,76 @@ def cluster_records(records, n, overrides, sm=None, state=None, sp=None,
             break
         merge_rounds += 1
 
-    # Recompute centroids after splits + merges
+    # Assign HDBSCAN noise points (label=-1) to nearest finalised cluster centroid.
+    # Deferred until after cohesion enforcement + merging so outliers don't
+    # inflate cluster sizes during refinement and trigger unnecessary splits.
+    labels = list(labels)
+    noise_idxs = [i for i, l in enumerate(labels) if l == -1]
+    if noise_idxs:
+        post_groups = {}
+        for i, l in enumerate(labels):
+            if l != -1:
+                post_groups.setdefault(l, []).append(i)
+        if post_groups:
+            c_labels_post = sorted(post_groups.keys())
+            c_matrix_post = np.array([X[post_groups[l]].mean(axis=0) for l in c_labels_post])
+            noise_X = X[noise_idxs]
+            sims = cosine_similarity(noise_X, c_matrix_post)
+            best = np.argmax(sims, axis=1)
+            for idx, b in zip(noise_idxs, best):
+                labels[idx] = c_labels_post[b]
+            log.info(f"  Assigned {len(noise_idxs)} noise points to nearest cluster (deferred)")
+
+    # Recompute centroids after splits + merges + noise assignment
     final_groups = {}
     for i, lbl in enumerate(labels):
         final_groups.setdefault(lbl, []).append(i)
     final_centroids = {lbl: X[idxs].mean(axis=0) for lbl, idxs in final_groups.items()}
 
-    sse_publish("progress", {"step": "finalizing", "pct": 95})
+    # Recompute semantic centroids and centroid stats from final groups
+    final_semantic_centroids = {lbl: X_embed[idxs].mean(axis=0)
+                                for lbl, idxs in final_groups.items()}
+    final_centroid_stats = {}
+    for lbl, idxs in final_groups.items():
+        X_sub = X[idxs]
+        centroid = final_centroids[lbl]
+        dists = 1.0 - cosine_similarity(X_sub, centroid.reshape(1, -1)).flatten()
+        final_centroid_stats[lbl] = {
+            "mean_dist": float(np.mean(dists)),
+            "std_dist":  float(np.std(dists)),
+            "count":     len(idxs),
+        }
+
+    # Save model as npz (arrays) + json (metadata) -- no pickle
+    # Saved AFTER cohesion enforcement, merging, and noise assignment so that
+    # the persisted centroids match the final labels used by incremental classification.
+    _save_arrays = {}
+    for lbl, c in final_centroids.items():
+        _save_arrays[f"centroid_{lbl}"] = np.asarray(c)
+    for lbl, c in final_semantic_centroids.items():
+        _save_arrays[f"sem_centroid_{lbl}"] = np.asarray(c)
+    _atomic_savez(config.MODEL_FILE, **_save_arrays)
+
+    _meta = {
+        "version": 4,
+        "type": "hybrid_embeddings",
+        "centroid_keys": [str(k) for k in final_centroids.keys()],
+        "centroid_stats": {str(k): v for k, v in final_centroid_stats.items()},
+        "audio_weight": config.AUDIO_WEIGHT if audio_feats else 0.0,
+        "audio_stats": {str(k): v for k, v in (audio_stats or {}).items()},
+        "audio_feature_keys": list(AUDIO_FEATURE_KEYS),
+        "embed_dim": int(X_embed.shape[1]),
+        "hybrid_dim": int(X.shape[1]),
+        "has_audio": bool(audio_feats),
+        "has_extra": extra_features is not None,
+        "hdbscan_metric": "euclidean (L2-normalized)",
+        "calibrated_threshold": calibrated_threshold,
+        "per_cluster_thresholds": {str(k): v for k, v in per_cluster_thresholds.items()},
+    }
+    with open(config.MODEL_META_FILE, "w") as f:
+        json.dump(_meta, f, indent=2)
+
+    sse_publish("progress", {"step": "model_saved", "pct": 95})
     final_k = len(set(labels))
     sizes = sorted(Counter(labels).values(), reverse=True)
     log.info(f"[cluster] Final: {final_k} playlists, sizes: {sizes}")
