@@ -3,6 +3,12 @@ FROM python:3.10-slim AS builder
 
 WORKDIR /build
 
+# Install Rust (needed to compile py-rust-stemmers, a fastembed dependency)
+RUN apt-get update && apt-get install -y --no-install-recommends curl build-essential \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
+    && rm -rf /var/lib/apt/lists/*
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
