@@ -15,9 +15,6 @@ from vibe_splitter.config import write_default_configs
 from vibe_splitter.state import state_manager as sm
 from vibe_splitter.spotify_client import get_sp
 from vibe_splitter.routes import register_routes, hourly_update
-from vibe_splitter.clustering import cluster_records
-from vibe_splitter.lastfm import build_vectors
-from vibe_splitter.playlists import push_playlists
 from vibe_splitter.db import init_db, check_embedding_version
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
@@ -82,65 +79,13 @@ def _hourly():
         log.debug("Hourly skipped — another job is running")
         return
     t = sm.get_token()
-    if t and s.get("last_weekly") and s.get("sources"):
+    if t and s.get("sources") and s.get("targets"):
         try:
             hourly_update(get_sp(t), s)
         except Exception as e:
             log.error(f"Hourly failed: {e}")
             sm.add_log(s, f"Hourly sync failed: {e}")
             sm.save(s)
-
-
-def _weekly():
-    s = sm.load()
-    t = sm.get_token()
-    if not t or not s.get("last_weekly"):
-        return
-    if not sm.try_acquire_job(s, "weekly"):
-        return
-    try:
-        sp = get_sp(t)
-        sm.add_log(s, "Weekly recluster triggered")
-        from vibe_splitter.spotify_client import fetch_all_tracks
-        tracks  = fetch_all_tracks(sp, s.get("sources", []), sm=sm, state=s)
-        records = build_vectors(tracks, sm, s,
-                                cb=lambda st, m: (sm.add_log(st, m), sm.save(st)),
-                                sp=sp)
-        extra_features = None
-        if config.ENABLE_YEAR_FEATURE or config.ENABLE_POPULARITY_FEATURE:
-            from vibe_splitter.embeddings import extract_extra_features
-            extra_features = extract_extra_features(
-                sp, tracks, config.ENABLE_YEAR_FEATURE, config.ENABLE_POPULARITY_FEATURE)
-        clusters = cluster_records(records, s["num_clusters"], s.get("overrides", {}),
-                                   sm=sm, state=s, sp=sp, extra_features=extra_features)
-        names = {k: v["name"] for k, v in s["playlists"].items()}
-        push_playlists(sp, sm, s, clusters, names)
-        s["known_track_ids"] = [t_obj["id"] for t_obj in tracks]
-        s["last_weekly"] = s["last_hourly"] = datetime.now().isoformat()
-        s["model_built_at"] = datetime.now().isoformat()
-        s["model_track_count"] = len(tracks)
-        s["drift_warning"] = False
-        s["preview"] = None
-        sm.add_log(s, "Weekly recluster complete!")
-        sm.save(s)
-        # Auto-prune stale cache entries
-        try:
-            from vibe_splitter import db as _db
-            active_ids = set(s.get("known_track_ids", []))
-            for pl in (s.get("playlists") or {}).values():
-                active_ids.update(pl.get("track_ids", []))
-            removed = _db.prune_tracks(active_ids)
-            if removed:
-                sm.add_log(s, f"Auto-pruned {removed} stale cache entries")
-                sm.save(s)
-        except Exception as prune_e:
-            log.warning(f"Auto-prune failed: {prune_e}")
-    except Exception as e:
-        log.error(f"Weekly failed: {e}")
-        sm.add_log(s, f"Weekly recluster failed: {e}")
-        sm.save(s)
-    finally:
-        sm.release_job(s)
 
 
 # ─── Startup time (for health endpoint) ──────────────────────────────────────
@@ -187,7 +132,6 @@ scheduler = None
 if not os.environ.get("WERKZEUG_RUN_MAIN"):
     scheduler = BackgroundScheduler()
     scheduler.add_job(_hourly, "interval", hours=1, id="hourly")
-    scheduler.add_job(_weekly, "interval", weeks=1, id="weekly")
     scheduler.start()
 
     import atexit

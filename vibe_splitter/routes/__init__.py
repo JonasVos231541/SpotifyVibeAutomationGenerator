@@ -10,7 +10,7 @@ from ..events import stream_events
 from ..hourly import hourly_update  # noqa: F401 — re-exported for app.py
 from .auth import auth_bp
 from .data import data_bp
-from .clustering import clustering_bp
+from .targets import targets_bp
 from .playlist import playlist_bp
 from .inbox import inbox_bp
 from .admin import admin_bp
@@ -58,7 +58,7 @@ def register_routes(app):
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(data_bp)
-    app.register_blueprint(clustering_bp)
+    app.register_blueprint(targets_bp)
     app.register_blueprint(playlist_bp)
     app.register_blueprint(inbox_bp)
     app.register_blueprint(admin_bp)

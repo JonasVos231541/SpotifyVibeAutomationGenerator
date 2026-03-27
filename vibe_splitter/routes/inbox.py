@@ -1,5 +1,5 @@
 """
-Inbox blueprint — approve and dismiss inbox tracks.
+Inbox blueprint -- approve and dismiss inbox tracks.
 """
 from flask import Blueprint, request, jsonify
 
@@ -13,6 +13,10 @@ inbox_bp = Blueprint("inbox", __name__)
 
 @inbox_bp.route("/api/inbox/approve", methods=["POST"])
 def api_inbox_approve():
+    """
+    Approve inbox tracks into target playlists.
+    Body: {"approvals": [{"track_id": "...", "target_spotify_id": "..."}]}
+    """
     t = _ref()
     if not t:
         return jsonify({"error": "Not logged in"}), 401

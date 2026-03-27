@@ -1,163 +1,125 @@
 """
-Playlist management: push clusters to Spotify, inbox workflow.
+Playlist management: route tracks to targets, inbox workflow.
 
 Handles:
-  - Creating / updating Spotify playlists from cluster data
-  - Auto-assigning high-confidence tracks directly to playlists
-  - Routing low-confidence tracks to the Inbox playlist
-  - Approving inbox items with duplicate-track prevention
+  - Auto-routing high-confidence tracks directly to target playlists
+  - Sending low-confidence tracks to the Vibe Inbox playlist
+  - Approving inbox items to a chosen target with duplicate-track prevention
 """
-import os, time, logging
-from datetime import datetime
-from . import config
+import time, logging
 from . import db
 from .spotify_client import create_playlist_me
-from .incremental import classify_new_tracks
 
 log = logging.getLogger("splitter.playlists")
 
 
-def push_playlists(sp, sm, state, clusters, confirmed_names):
-    """Create or update Spotify playlists for each cluster."""
-    # Collect all unique track IDs across clusters for a single batch lookup
-    all_tids = list({tid for c in clusters.values() for tid in c.get("track_ids", [])})
-    _cache = db.get_tracks_batch(all_tids)
-
-    for key, c in clusters.items():
-        name   = confirmed_names.get(key) or c["suggested_name"]
-        health = c.get("health", 50)
-        track_ids = c.get("track_ids", [])
-
-        # Compute diff before updating
-        prev_ids = set(state.get("playlists", {}).get(key, {}).get("track_ids", []))
-        new_ids  = set(track_ids)
-        added    = new_ids - prev_ids
-        removed  = prev_ids - new_ids
-        uris = []
-        for tid in track_ids:
-            entry = _cache.get(tid)
-            if entry and entry.get("uri"):
-                uris.append(entry["uri"])
-        log.info(f"push: {key} '{name}' — {len(track_ids)} ids → {len(uris)} uris")
-        if not uris:
-            sm.add_log(state, f"Warning: '{name}' has no URIs — skipping")
-            continue
-        exist = state["playlists"].get(key, {}).get("spotify_id")
-        if exist:
-            sp.playlist_replace_items(exist, [])
-            for i in range(0, len(uris), 100):
-                sp.playlist_add_items(exist, uris[i:i+100]); time.sleep(0.1)
-            sm.add_log(state, f"Updated '{name}' — {len(uris)} tracks")
-        else:
-            pl  = create_playlist_me(sp, name)
-            pid = pl["id"]
-            for i in range(0, len(uris), 100):
-                sp.playlist_add_items(pid, uris[i:i+100]); time.sleep(0.1)
-            state["playlists"][key] = {"name": name, "spotify_id": pid,
-                                       "track_ids": track_ids, "health": health}
-            sm.add_log(state, f"Created '{name}' — {len(uris)} tracks")
-        state["playlists"][key]["name"]      = name
-        state["playlists"][key]["track_ids"] = track_ids
-        state["playlists"][key]["health"]    = health
-        state["playlists"][key]["last_push"] = {
-            "timestamp":     datetime.now().isoformat(),
-            "added_count":   len(added),
-            "removed_count": len(removed),
-            "added_ids":     list(added)[:50],
-            "removed_ids":   list(removed)[:50],
-            "total":         len(track_ids),
-        }
-
-
 def push_to_inbox(sp, sm, state, new_records):
     """
-    Route new tracks: auto-assign high-confidence tracks directly to playlists,
-    send low-confidence ones to the Inbox.
+    Push routed tracks to their destinations.
+
+    Records are expected to already have auto_assigned / assigned_target set
+    by router.route_tracks().
+
+    Auto-assigned records go directly to the target Spotify playlist.
+    Others go to the Vibe Inbox playlist for manual review.
     """
     state.setdefault("inbox", [])
+    state.setdefault("track_assignments", {})
     existing_inbox_ids = {t["id"] for t in state["inbox"]}
 
     auto_assigned = [r for r in new_records if r.get("auto_assigned")]
-    inbox_bound   = [r for r in new_records if not r.get("auto_assigned")
-                     and r["id"] not in existing_inbox_ids]
+    inbox_bound = [r for r in new_records
+                   if not r.get("auto_assigned") and r["id"] not in existing_inbox_ids]
 
-    # Auto-assign high-confidence tracks
+    # Push auto-assigned tracks to their target Spotify playlists
     n_auto = 0
-    if auto_assigned and state.get("playlists"):
-        _auto_ids = [r["id"] for r in auto_assigned]
-        _cache = db.get_tracks_batch(_auto_ids)
+    if auto_assigned:
+        by_target = {}
         for rec in auto_assigned:
-            key = rec.get("predicted_cluster")
-            pl  = state["playlists"].get(key, {})
-            pid = pl.get("spotify_id")
-            if not pid or not rec.get("uri"):
+            tid = rec.get("assigned_target")
+            if not tid:
                 inbox_bound.append(rec)
                 continue
-            # Prevent duplicates
-            existing_tids = set(pl.get("track_ids", []))
-            if rec["id"] in existing_tids:
-                continue
-            try:
-                sp.playlist_add_items(pid, [rec["uri"]])
-                pl.setdefault("track_ids", []).append(rec["id"])
+            by_target.setdefault(tid, []).append(rec)
+
+        for target_id, recs in by_target.items():
+            already = {k for k, v in state["track_assignments"].items() if v == target_id}
+            uris_to_add = []
+            for rec in recs:
+                if rec["id"] in already or not rec.get("uri"):
+                    if not rec.get("uri"):
+                        inbox_bound.append(rec)
+                    continue
+                uris_to_add.append(rec["uri"])
+                state["track_assignments"][rec["id"]] = target_id
                 n_auto += 1
-            except Exception as e:
-                log.warning(f"Auto-assign failed for {rec.get('name')}: {e}")
-                inbox_bound.append(rec)
-    elif auto_assigned:
-        # No playlists yet — send to inbox
-        inbox_bound.extend(auto_assigned)
+
+            if uris_to_add:
+                for i in range(0, len(uris_to_add), 100):
+                    try:
+                        sp.playlist_add_items(target_id, uris_to_add[i:i+100])
+                    except Exception as e:
+                        log.warning(f"Failed to add tracks to target {target_id}: {e}")
+                    time.sleep(0.1)
 
     if n_auto > 0:
-        sm.add_log(state, f"{n_auto} tracks auto-assigned to playlists")
+        sm.add_log(state, f"{n_auto} tracks auto-routed to target playlists")
 
-    # Route remaining to inbox
+    # Send remaining to Vibe Inbox
     if inbox_bound:
         state["inbox"].extend(inbox_bound)
         inbox_pid = state.get("inbox_playlist_id")
         if not inbox_pid:
             pl = create_playlist_me(sp, "Vibe Inbox",
-                                    description="New liked songs waiting to be sorted — Vibe Splitter")
+                                    description="New liked songs waiting to be sorted -- Vibe Splitter")
             inbox_pid = pl["id"]
             state["inbox_playlist_id"] = inbox_pid
         uris = [r.get("uri") for r in inbox_bound if r.get("uri")]
         for i in range(0, len(uris), 100):
             sp.playlist_add_items(inbox_pid, uris[i:i+100])
-        sm.add_log(state, f"{len(inbox_bound)} new tracks in Inbox — review & approve in app")
+        sm.add_log(state, f"{len(inbox_bound)} new tracks in Inbox -- review & approve in app")
 
 
 def approve_inbox(sp, sm, state, approvals):
     """
-    Approve inbox tracks into cluster playlists.
+    Approve inbox tracks into target playlists.
 
-    Prevents duplicates by checking ``track_ids`` before adding.
+    approvals: [{"track_id": "...", "target_spotify_id": "..."}]
+
+    Prevents duplicates by checking track_assignments before adding.
     """
-    if not os.path.exists(config.MODEL_FILE):
-        return
     _approve_ids = [a["track_id"] for a in approvals]
-    _cache    = db.get_tracks_batch(_approve_ids)
+    _cache = db.get_tracks_batch(_approve_ids)
     inbox_pid = state.get("inbox_playlist_id")
+    state.setdefault("track_assignments", {})
+
+    targets_by_id = {t["spotify_id"]: t for t in state.get("targets", [])}
 
     for a in approvals:
         tid = a["track_id"]
-        key = str(a["cluster_key"])
+        target_id = str(a["target_spotify_id"])
         rec = _cache.get(tid)
-        pl  = state["playlists"].get(key, {})
-        pid = pl.get("spotify_id")
-        if rec and pid:
-            # Duplicate prevention
-            existing = set(pl.get("track_ids", []))
-            if tid in existing:
-                sm.add_log(state, f"'{rec['name']}' already in {pl.get('name', key)} — skipped")
-                continue
-            sp.playlist_add_items(pid, [rec["uri"]])
-            pl.setdefault("track_ids", []).append(tid)
+        if not rec or not rec.get("uri"):
+            continue
+
+        target_name = targets_by_id.get(target_id, {}).get("name", target_id)
+
+        # Prevent duplicates
+        if state["track_assignments"].get(tid) == target_id:
+            sm.add_log(state, f"'{rec['name']}' already in '{target_name}' -- skipped")
+            continue
+
+        try:
+            sp.playlist_add_items(target_id, [rec["uri"]])
+            state["track_assignments"][tid] = target_id
             if inbox_pid:
                 try:
                     sp.playlist_remove_all_occurrences_of_items(inbox_pid, [{"uri": rec["uri"]}])
                 except Exception:
                     pass
-            sm.add_log(state, f"'{rec['name']}' → {pl.get('name', 'cluster ' + key)}")
+            sm.add_log(state, f"'{rec['name']}' -> '{target_name}'")
+        except Exception as e:
+            log.warning(f"Failed to approve '{rec.get('name')}': {e}")
 
     approved_ids = {a["track_id"] for a in approvals}
     state["inbox"] = [t for t in state.get("inbox", []) if t["id"] not in approved_ids]

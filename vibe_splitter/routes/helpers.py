@@ -36,10 +36,9 @@ def _ref():
 
 
 def _collect_active_ids(state):
-    """Gather all track IDs that should be retained (playlists, inbox, known)."""
+    """Gather all track IDs that should be retained (known, assignments, inbox)."""
     active = set(state.get("known_track_ids", []))
-    for pl in (state.get("playlists") or {}).values():
-        active.update(pl.get("track_ids", []))
+    active.update(state.get("track_assignments", {}).keys())
     for item in state.get("inbox", []):
         active.add(item.get("id", ""))
     return active

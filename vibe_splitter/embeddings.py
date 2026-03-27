@@ -11,7 +11,16 @@ import numpy as np
 from collections import Counter
 from sklearn.preprocessing import normalize
 from . import config
-from .naming import score_axis  # energy/mood scoring
+
+
+def score_axis(tag_counts, pos_tags, neg_tags):
+    """Score a 0-1 axis (e.g. energy, mood) from tag weights."""
+    pos = sum(tag_counts.get(t, 0) for t in pos_tags)
+    neg = sum(tag_counts.get(t, 0) for t in neg_tags)
+    total = pos + neg
+    if total == 0:
+        return 0.5
+    return pos / total
 
 log = logging.getLogger("splitter.embeddings")
 

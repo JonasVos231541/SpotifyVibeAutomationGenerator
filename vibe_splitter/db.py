@@ -74,6 +74,16 @@ def init_db():
             features_json TEXT NOT NULL,
             fetched_at   TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS targets (
+            spotify_id          TEXT PRIMARY KEY,
+            name                TEXT,
+            description         TEXT DEFAULT '',
+            custom_description  TEXT DEFAULT '',
+            desc_embedding      BLOB,
+            song_centroid       BLOB,
+            song_count          INTEGER DEFAULT 0,
+            updated_at          TEXT
+        );
     """)
     conn.commit()
 
@@ -414,3 +424,57 @@ def save_audio_features_batch(features_dict):
         [(tid, json.dumps(feats), now) for tid, feats in features_dict.items()])
     conn.commit()
     log.info(f"Cached audio features for {len(features_dict)} tracks")
+
+
+# ─── Target helpers ────────────────────────────────────────────────────────────
+
+def save_target_embedding(spotify_id, desc_embedding, song_centroid, song_count):
+    """Persist a target playlist's embedding data."""
+    conn = _get_conn()
+    conn.execute(
+        """INSERT OR REPLACE INTO targets
+           (spotify_id, desc_embedding, song_centroid, song_count, updated_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (
+            spotify_id,
+            desc_embedding.tobytes() if desc_embedding is not None else None,
+            song_centroid.tobytes() if song_centroid is not None else None,
+            song_count,
+            datetime.now().isoformat(),
+        )
+    )
+    conn.commit()
+
+
+def get_target_embedding(spotify_id):
+    """Return (desc_embedding_bytes, song_centroid_bytes, song_count) or None."""
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT desc_embedding, song_centroid, song_count FROM targets WHERE spotify_id=?",
+        (spotify_id,)
+    ).fetchone()
+    if not row:
+        return None
+    return row["desc_embedding"], row["song_centroid"], row["song_count"]
+
+
+def delete_target(spotify_id):
+    """Remove a target's embedding row."""
+    conn = _get_conn()
+    conn.execute("DELETE FROM targets WHERE spotify_id=?", (spotify_id,))
+    conn.commit()
+
+
+def upsert_target_meta(spotify_id, name, description, custom_description):
+    """Insert or update target metadata (name, descriptions) without touching embeddings."""
+    conn = _get_conn()
+    conn.execute(
+        """INSERT INTO targets (spotify_id, name, description, custom_description)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(spotify_id) DO UPDATE SET
+             name=excluded.name,
+             description=excluded.description,
+             custom_description=excluded.custom_description""",
+        (spotify_id, name, description, custom_description)
+    )
+    conn.commit()

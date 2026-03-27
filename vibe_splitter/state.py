@@ -13,22 +13,17 @@ from . import config
 log = logging.getLogger("splitter.state")
 
 _DEFAULT_STATE = {
-    "playlists":         {},
     "sources":           [],
-    "num_clusters":      10,
-    "last_hourly":       None,
-    "last_weekly":       None,
+    "source_snapshots":  {},
+    "targets":           [],
     "known_track_ids":   [],
+    "track_assignments": {},
     "overrides":         {},
     "inbox":             [],
     "inbox_playlist_id": None,
     "logs":              [],
-    "preview":           None,
-    "drift_warning":     False,
+    "last_hourly":       None,
     "job_running":       None,
-    "model_built_at":    None,
-    "model_track_count": 0,
-    "auto_recluster_enabled": True,
 }
 
 
