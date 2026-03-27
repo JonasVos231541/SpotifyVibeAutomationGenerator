@@ -115,18 +115,23 @@ def fetch_and_cache_track(track_obj, sp=None, artist_cache=None, artist_lock=Non
         existing = {tg for tg, _ in useful}
         useful += [(tg, cnt) for tg, cnt in artist_useful if tg not in existing]
 
-    # 3. Spotify artist genre fallback
+    # 3. Spotify artist genre fallback — gated by rate budget to prevent bans
     if len(useful) < 2 and sp is not None:
         try:
-            for a in artists[:2]:
-                aid = a.get("id")
-                if not aid:
-                    continue
-                artist_data = sp.artist(aid)
-                for genre in artist_data.get("genres", [])[:5]:
-                    g = genre.lower()
-                    if g not in config.NOISE_TAGS and g not in {tg for tg, _ in useful}:
-                        useful.append((g, 30))  # low weight
+            from .spotify_client import _rate_budget
+            if _rate_budget.can_call():
+                for a in artists[:2]:
+                    aid = a.get("id")
+                    if not aid:
+                        continue
+                    if not _rate_budget.can_call():
+                        break
+                    _rate_budget.record()
+                    artist_data = sp.artist(aid)
+                    for genre in artist_data.get("genres", [])[:5]:
+                        g = genre.lower()
+                        if g not in config.NOISE_TAGS and g not in {tg for tg, _ in useful}:
+                            useful.append((g, 30))  # low weight
         except Exception as e:
             log.debug(f"Spotify genre fallback failed for {primary_artist}: {e}")
 
