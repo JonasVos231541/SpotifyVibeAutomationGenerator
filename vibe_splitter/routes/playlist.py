@@ -24,6 +24,9 @@ def api_create_playlist():
     t = _ref()
     if not t:
         return jsonify({"error": "Not logged in"}), 401
+    scope = t.get("scope", "")
+    if "playlist-modify-public" not in scope and "playlist-modify-private" not in scope:
+        return jsonify({"error": "Missing playlist-modify scope -- re-login to fix"}), 403
     data = request.json or {}
     name = _sanitize_name(data.get("name", ""), max_len=100)
     description = _sanitize_name(data.get("description", ""), max_len=300)
@@ -42,7 +45,10 @@ def api_create_playlist():
                         "description": pl.get("description", "")})
     except Exception as e:
         log.error(f"Failed to create playlist '{name}': {e}")
-        return jsonify({"error": str(e)}), 500
+        err = str(e)
+        if "403" in err:
+            return jsonify({"error": "403 from Spotify -- re-login to grant playlist-modify access"}), 403
+        return jsonify({"error": err}), 500
 
 
 @playlist_bp.route("/api/retag", methods=["POST"])
