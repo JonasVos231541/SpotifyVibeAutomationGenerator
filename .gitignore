@@ -36,3 +36,4 @@ track_cache.json
 # Claude
 .claude/
 .claude-flow/
+Claude.md

@@ -12,7 +12,7 @@ python app.py
 
 - **Backend:** Flask + Python 3.10, waitress WSGI server
 - **Database:** SQLite with WAL mode (`vibe_splitter/db.py`)
-- **Embeddings:** TF-IDF + Truncated SVD (scikit-learn, no PyTorch)
+- **Embeddings:** fastembed ONNX MiniLM-L6-v2 (384-dim, no PyTorch) + optional Spotify audio feature fusion
 - **Clustering:** HDBSCAN with L2-normalized euclidean distance
 - **Real-time:** Server-Sent Events (`/api/events`)
 - **Deployment:** Render free tier (512MB RAM), Docker, auto-deploy from GitHub `main`
@@ -24,20 +24,19 @@ app.py                    # Flask entry, APScheduler (hourly/weekly jobs)
 vibe_splitter/
   config.py               # All settings, env vars, genre rules
   hourly.py               # Hourly update logic (extracted from routes to avoid circular imports)
-  routes/                 # Flask Blueprints (38 endpoints)
+  router.py               # Route new tracks to target playlists via embedding similarity
+  routes/                 # Flask Blueprints
     __init__.py           # register_routes(), core middleware (CSRF, CSP, error handler), SSE
     helpers.py            # Shared: _sanitize_name, _valid_id, _ref, rate_limit decorator
     auth.py               # /login, /callback, /logout, /api/wipe-token, /api/token-info
     data.py               # /api/state, /api/stats, /api/playlists, /api/cache-*, /api/overrides
-    clustering.py         # /api/preview, /api/preview-ensemble, /api/confirm*, /api/split, /api/merge
     playlist.py           # /api/update-name, /api/cleanup-playlists, /api/cover-*, /api/retag, /api/override
     inbox.py              # /api/inbox/approve, /api/inbox/dismiss
+    targets.py            # /api/targets — manage target playlists and their embeddings
     admin.py              # /api/test-fetch, /api/test-playlist
   spotify_client.py       # Spotify API wrapper, circuit breaker, rate budget
   lastfm.py               # Parallel Last.fm tag fetching with global rate limiter
-  embeddings.py           # TF-IDF + SVD embedding pipeline
-  clustering.py           # HDBSCAN clustering, split/merge, cohesion
-  incremental.py          # New track classification against saved model
+  embeddings.py           # fastembed encoding pipeline + optional audio feature fusion
   naming.py               # Cluster naming (energy/mood scoring, AI names)
   playlists.py            # Push clusters to Spotify playlists
   state.py                # Thread-safe JSON state manager
