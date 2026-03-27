@@ -11,7 +11,7 @@ from ..state import state_manager as sm
 from ..spotify_client import get_sp
 from ..lastfm import fetch_and_cache_track
 from ..hourly import hourly_update
-from .helpers import _ref, _valid_id, rate_limit
+from .helpers import _ref, _valid_id, _sanitize_name, rate_limit
 
 log = logging.getLogger("splitter.routes.playlist")
 
