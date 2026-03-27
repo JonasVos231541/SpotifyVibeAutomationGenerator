@@ -26,7 +26,7 @@ targets_bp = Blueprint("targets", __name__)
 def _get_playlist_info(sp, playlist_id):
     """Fetch name + description from Spotify for a playlist."""
     try:
-        pl = sp.playlist(playlist_id, fields="id,name,description,tracks.total")
+        pl = sp.playlist(playlist_id, fields="id,name,description,tracks(total)")
         return {
             "name": pl.get("name", ""),
             "description": pl.get("description", "") or "",

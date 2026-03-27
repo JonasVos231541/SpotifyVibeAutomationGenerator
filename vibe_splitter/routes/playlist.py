@@ -34,10 +34,12 @@ def api_create_playlist():
         return jsonify({"error": "name is required"}), 400
     sp = get_sp(t)
     try:
-        user = sp.current_user()
-        pl = sp.user_playlist_create(
-            user["id"], name, public=True, description=description
-        )
+        # Use /me/playlists (current endpoint) instead of deprecated /users/{id}/playlists
+        pl = sp._post("me/playlists", payload={
+            "name": name,
+            "description": description,
+            "public": True,
+        })
         s = sm.load()
         sm.add_log(s, f"Created playlist '{name}' via Vibe Builder")
         sm.save(s)

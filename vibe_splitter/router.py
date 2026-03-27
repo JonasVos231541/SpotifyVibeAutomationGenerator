@@ -181,12 +181,29 @@ def refresh_all_target_embeddings(targets, sp, sm, state):
     """
     Rebuild embeddings for all configured targets.
     Called at the start of each hourly job so song centroids stay current.
+
+    Skips the full track fetch (expensive) if the playlist's song count
+    hasn't changed since the last embedding was built.
     """
     if not targets:
         return
     for target in targets:
-        name = target.get("name", target["spotify_id"])
+        spotify_id = target["spotify_id"]
+        name = target.get("name", spotify_id)
         try:
+            # Check current song count from Spotify (1 cheap API call)
+            pl_meta = sp.playlist(spotify_id, fields="tracks(total)")
+            current_count = (pl_meta.get("tracks") or {}).get("total", 0)
+
+            # Compare against stored count — skip full rebuild if unchanged
+            stored = db.get_target_embedding(spotify_id)
+            stored_count = stored[2] if stored else None
+
+            if stored_count is not None and stored_count == current_count:
+                log.debug(f"[router] '{name}' unchanged ({current_count} songs) -- skipping rebuild")
+                continue
+
+            log.info(f"[router] '{name}' changed ({stored_count} -> {current_count}) -- rebuilding embedding")
             build_target_embedding(target, sp)
         except Exception as e:
             log.warning(f"[router] Failed to refresh embedding for '{name}': {e}")
