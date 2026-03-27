@@ -7,6 +7,7 @@ Endpoints:
   PUT    /api/targets/<spotify_id>      -- update custom_description
   DELETE /api/targets/<spotify_id>      -- remove target
   POST   /api/targets/<spotify_id>/refresh -- force-rebuild embedding
+  GET    /api/suggest-targets           -- score user playlists for target suitability
 """
 import logging
 from flask import Blueprint, request, jsonify
@@ -137,6 +138,59 @@ def api_targets_remove(spotify_id):
     sm.add_log(s, f"Removed target playlist {spotify_id}")
     sm.save(s)
     return jsonify({"ok": True})
+
+
+@targets_bp.route("/api/suggest-targets")
+@rate_limit(15)
+def api_suggest_targets():
+    """Score the user's playlists for suitability as routing targets."""
+    t = _ref()
+    if not t:
+        return jsonify({"error": "Not logged in"}), 401
+    sp = get_sp(t)
+
+    # Fetch playlists with description included
+    playlists = []
+    try:
+        r = sp.current_user_playlists(limit=50)
+        while r:
+            for p in (r.get("items") or []):
+                if not p:
+                    continue
+                playlists.append({
+                    "id": p["id"],
+                    "name": p.get("name", ""),
+                    "description": (p.get("description") or "").strip(),
+                    "track_count": (p.get("tracks") or {}).get("total", 0),
+                })
+            r = sp.next(r) if r.get("next") else None
+    except Exception as e:
+        log.warning(f"suggest-targets: failed to fetch playlists: {e}")
+        return jsonify({"error": "Could not fetch playlists"}), 500
+
+    s = sm.load()
+    existing_ids = {tg["spotify_id"] for tg in s.get("targets", [])}
+
+    result = []
+    for pl in playlists:
+        has_desc = bool(pl["description"])
+        track_count = pl["track_count"]
+        # Score: more songs + has description = better target candidate
+        score = min(track_count, 100) + (15 if has_desc else 0)
+        stars = 3 if track_count >= 20 or (track_count >= 10 and has_desc) else (2 if track_count >= 5 else 1)
+        result.append({
+            "id": pl["id"],
+            "name": pl["name"],
+            "description": pl["description"],
+            "track_count": track_count,
+            "has_description": has_desc,
+            "stars": stars,
+            "score": score,
+            "already_target": pl["id"] in existing_ids,
+        })
+
+    result.sort(key=lambda x: x["score"], reverse=True)
+    return jsonify({"playlists": result})
 
 
 @targets_bp.route("/api/targets/<spotify_id>/refresh", methods=["POST"])

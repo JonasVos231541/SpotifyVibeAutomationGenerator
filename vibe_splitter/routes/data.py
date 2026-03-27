@@ -7,7 +7,7 @@ from flask import Blueprint, request, session, jsonify
 from .. import config, db
 from ..state import state_manager as sm
 from ..spotify_client import get_sp, get_user_playlists
-from .helpers import _ref, _sanitize_name, _valid_id
+from .helpers import _ref, _sanitize_name, _valid_id, rate_limit
 
 log = logging.getLogger("splitter.routes.data")
 
@@ -155,6 +155,80 @@ def api_save_sources():
         s["sources"] = validated
         sm.add_log(s, f"Sources updated: {len(validated)} source(s)")
     return jsonify({"ok": True, "count": len(validated)})
+
+
+@data_bp.route("/api/preview-routing", methods=["POST"])
+@rate_limit(10)
+def api_preview_routing():
+    """
+    Dry-run the routing engine on all cached tracks (no Spotify API calls).
+    Returns per-track (best_target, confidence) pairs so the frontend can
+    recompute the distribution live as the user adjusts the threshold slider.
+    """
+    import numpy as np
+    from ..router import get_target_vectors, ROUTE_THRESHOLD
+
+    s = sm.load()
+    targets = s.get("targets", [])
+    if not targets:
+        return jsonify({"error": "No targets configured"}), 400
+
+    target_vectors = get_target_vectors(s)
+    if not target_vectors:
+        return jsonify({"error": "No target embeddings -- add targets and click Refresh first"}), 400
+
+    tracks = db.get_all_tracks()
+    if not tracks:
+        return jsonify({"total": 0, "assignments": [], "per_target": [],
+                        "default_threshold": ROUTE_THRESHOLD})
+
+    track_list = list(tracks.values())
+    tids = [t.get("id", "") for t in track_list]
+    emb_cache = db.get_embeddings_batch(tids)
+
+    target_ids = list(target_vectors.keys())
+    target_names = {tg["spotify_id"]: tg["name"] for tg in targets}
+    T = np.stack([target_vectors[tid] for tid in target_ids])
+
+    assignments = []
+    for track in track_list:
+        tid = track.get("id", "")
+        raw = emb_cache.get(tid)
+        if not raw:
+            continue
+        vec = np.frombuffer(raw, dtype=np.float32)
+        if len(vec) != config.EMBED_DIM:
+            continue
+        sims = T.dot(vec)
+        best_idx = int(np.argmax(sims))
+        assignments.append({
+            "target_id": target_ids[best_idx],
+            "confidence": round(float(sims[best_idx]), 4),
+        })
+
+    # Per-target summary (avg confidence for tracks that best-match this target)
+    from collections import defaultdict
+    buckets = defaultdict(list)
+    for a in assignments:
+        buckets[a["target_id"]].append(a["confidence"])
+
+    per_target = [
+        {
+            "target_id": tid,
+            "name": target_names.get(tid, tid),
+            "count": len(buckets[tid]),
+            "avg_confidence": round(sum(buckets[tid]) / len(buckets[tid]), 4) if buckets[tid] else 0,
+        }
+        for tid in target_ids
+    ]
+
+    return jsonify({
+        "total": len(assignments),
+        "assignments": assignments,
+        "per_target": per_target,
+        "default_threshold": ROUTE_THRESHOLD,
+        "target_ids": target_ids,
+    })
 
 
 @data_bp.route("/api/cache-sources")

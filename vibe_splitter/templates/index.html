@@ -200,6 +200,33 @@ button:focus-visible,.nav-tab:focus-visible,.card:focus-visible{outline:2px soli
 .toast.warning{border-color:rgba(240,165,0,.4);}
 .toast.info{border-color:rgba(106,143,255,.4);}
 
+/* DISCOVER TAB */
+.suggest-card{background:var(--s1);border:1px solid var(--border);padding:14px 16px;margin-bottom:8px;
+  display:flex;align-items:center;gap:14px;animation:fadeUp .25s ease both;}
+.suggest-card:hover{border-color:var(--border2);}
+.suggest-card-info{flex:1;min-width:0;}
+.suggest-card-name{font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.suggest-card-meta{font-size:10px;color:var(--muted);margin-top:2px;}
+.suggest-card-desc{font-size:10px;color:var(--muted2);margin-top:3px;line-height:1.6;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.stars{color:var(--amber);font-size:12px;letter-spacing:1px;flex-shrink:0;min-width:44px;}
+.tag-chip-grid{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
+.tag-chip{padding:5px 11px;border:1px solid var(--border2);font-size:11px;color:var(--muted2);
+  cursor:pointer;transition:all .15s;background:var(--s2);user-select:none;}
+.tag-chip:hover{border-color:var(--muted2);color:var(--text);}
+.tag-chip.sel{border-color:var(--green);color:var(--green);background:rgba(29,185,84,.07);}
+.preview-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #111;font-size:11px;}
+.preview-row:last-child{border-bottom:none;}
+.preview-row-name{width:150px;color:var(--muted2);flex-shrink:0;overflow:hidden;text-overflow:ellipsis;}
+.preview-row-bar{flex:1;height:6px;background:var(--s3);border-radius:3px;overflow:hidden;}
+.preview-row-fill{height:100%;background:var(--green);border-radius:3px;transition:width .3s ease;}
+.preview-row-inbox .preview-row-fill{background:var(--amber);}
+.preview-counts{font-size:10px;color:var(--muted);min-width:56px;text-align:right;flex-shrink:0;}
+.disc-section{margin-bottom:28px;}
+.disc-section-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;
+  margin-bottom:4px;display:flex;align-items:center;gap:10px;}
+.disc-section-sub{font-size:11px;color:var(--muted2);margin-bottom:14px;line-height:1.8;}
+
 /* RESPONSIVE */
 @media(max-width:1024px){
   .main{padding:20px 24px;}
@@ -260,6 +287,7 @@ button:focus-visible,.nav-tab:focus-visible,.card:focus-visible{outline:2px soli
 <!-- NAV TABS -->
 <nav class="nav" id="main-nav" role="tablist" aria-label="Main navigation">
   <button class="nav-tab active" onclick="showTab('configure')" id="tab-configure" role="tab" aria-selected="true">Configure</button>
+  <button class="nav-tab" onclick="showTab('discover')" id="tab-discover" role="tab" aria-selected="false">Discover</button>
   <button class="nav-tab" onclick="showTab('targets')" id="tab-targets" role="tab" aria-selected="false">Targets</button>
   <button class="nav-tab" onclick="showTab('inbox')" id="tab-inbox" role="tab" aria-selected="false">Inbox <span class="badge-pill" id="inbox-badge" style="display:none">0</span></button>
   <button class="nav-tab" onclick="showTab('stats')" id="tab-stats" role="tab" aria-selected="false">Stats</button>
@@ -322,12 +350,82 @@ button:focus-visible,.nav-tab:focus-visible,.card:focus-visible{outline:2px soli
   </div>
 </div>
 
+<!-- ── TAB: DISCOVER ── -->
+<div id="tab-discover-content" style="display:none;">
+  <div class="stitle" style="margin-bottom:4px;">Discover Targets</div>
+  <div style="font-size:12px;color:var(--muted2);margin-bottom:24px;">Find the right playlists to route your music into, or build new ones from your music's DNA.</div>
+
+  <!-- Section 1: Playlist Scorer -->
+  <div class="disc-section">
+    <div class="disc-section-title">
+      Use an Existing Playlist
+      <button class="btn btn-sm" onclick="loadSuggestedTargets(true)" id="btn-load-suggest">Load My Playlists</button>
+    </div>
+    <div class="disc-section-sub">Your playlists ranked by target suitability. More songs + a description = better routing anchor.</div>
+    <div id="suggest-list">
+      <div style="font-size:11px;color:var(--muted);padding:20px 0;">Click "Load My Playlists" to score your Spotify playlists.</div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Section 2: Vibe Builder -->
+  <div class="disc-section">
+    <div class="disc-section-title">Build a New Playlist from Your Vibes</div>
+    <div class="disc-section-sub">Click tags from your library to group them into a vibe. Then name it and create it as a new Spotify playlist + target.</div>
+    <div id="vibe-tags-wrap">
+      <div style="font-size:11px;color:var(--muted);padding:12px 0;">Load your library stats first (Stats tab), or <button class="btn btn-xs btn-og" onclick="loadVibeTags()">Load Tags</button></div>
+    </div>
+    <div id="vibe-selected" style="display:none;margin-bottom:12px;">
+      <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">Selected tags:</div>
+      <div id="vibe-selected-chips" class="tag-chip-grid"></div>
+    </div>
+    <div id="vibe-builder-form" style="display:none;">
+      <div class="fg">
+        <label class="fl">Playlist Name</label>
+        <input class="finp" id="vibe-name" placeholder="e.g. Late Night Electronica" maxlength="100">
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:10px;" id="vibe-auto-desc"></div>
+      <button class="btn btn-g" onclick="createVibePlaylist()">Create Playlist &amp; Add as Target</button>
+      <button class="btn btn-sm" onclick="clearVibePicks()" style="margin-left:8px;">Clear</button>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Section 3: Routing Preview -->
+  <div class="disc-section">
+    <div class="disc-section-title">
+      Preview Routing
+      <button class="btn btn-sm btn-og" onclick="runPreview()" id="btn-run-preview">Run Preview</button>
+    </div>
+    <div class="disc-section-sub">See how your cached tracks would be distributed across your targets before the next sync. Adjust the threshold slider to tune sensitivity.</div>
+    <div id="preview-wrap" style="display:none;">
+      <div style="margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+        <div style="font-size:11px;color:var(--muted2);">Confidence threshold:</div>
+        <input type="range" id="preview-slider" min="20" max="80" value="45" step="1"
+          oninput="updatePreviewDisplay(this.value/100)"
+          style="width:160px;accent-color:var(--green);">
+        <span id="preview-threshold-label" style="font-size:12px;color:var(--text);min-width:36px;">0.45</span>
+        <span id="preview-summary" style="font-size:11px;color:var(--muted);"></span>
+      </div>
+      <div class="card" style="padding:14px;">
+        <div id="preview-bars"></div>
+      </div>
+    </div>
+    <div id="preview-empty" style="font-size:11px;color:var(--muted);padding:12px 0;">
+      Add at least one target and run a sync to build embeddings, then preview routing.
+    </div>
+  </div>
+</div>
+
 <!-- ── TAB: TARGETS ── -->
 <div id="tab-targets-content" style="display:none;">
   <div class="flex jb ac" style="margin-bottom:20px;">
     <div>
       <div class="stitle">Target Playlists</div>
       <div style="font-size:12px;color:var(--muted2);">New tracks are automatically routed to the best-matching target based on its description and existing songs.</div>
+      <div id="coverage-pill" style="display:none;margin-top:6px;font-size:11px;color:var(--muted2);"></div>
     </div>
     <div class="flex gap-8 ac" style="flex-shrink:0;">
       <select class="fsel" id="target-pl-sel" style="width:200px;"></select>
@@ -387,6 +485,7 @@ button:focus-visible,.nav-tab:focus-visible,.card:focus-visible{outline:2px soli
 <script>
 {% if logged_in %}
 let S={}, userPlaylists=[], selectedSources=[], statsLoaded=false;
+let vibeSelectedTags=[], previewData=null, discoverLoaded=false, vibeTagsLoaded=false;
 
 // CSRF: inject X-Requested-With header on all fetch calls
 const _origFetch = window.fetch;
@@ -507,7 +606,7 @@ async function sync(){
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
 function showTab(name){
-  const tabs=["configure","targets","inbox","stats"];
+  const tabs=["configure","discover","targets","inbox","stats"];
   tabs.forEach(t=>{
     document.getElementById(`tab-${t}-content`).style.display = t===name?"block":"none";
     const tabBtn = document.getElementById(`tab-${t}`);
@@ -517,6 +616,7 @@ function showTab(name){
   if(name==="stats") loadStats();
   if(name==="inbox") renderInbox();
   if(name==="targets") renderTargets();
+  if(name==="discover"){ if(!vibeTagsLoaded) loadVibeTags(); }
 }
 
 // ── SOURCE MANAGEMENT ─────────────────────────────────────────────────────────
@@ -577,6 +677,20 @@ function renderTargets(){
   const targets = S.targets||[];
   const emptyNote = document.getElementById("targets-empty-note");
   const grid = document.getElementById("targets-grid");
+
+  // Coverage pill
+  const knownCount = (S.known_track_ids||[]).length;
+  const assignedCount = Object.keys(S.track_assignments||{}).length;
+  const coveragePill = document.getElementById("coverage-pill");
+  if(coveragePill && knownCount > 0){
+    const pct = Math.round(assignedCount / knownCount * 100);
+    const inboxPct = Math.round((S.inbox||[]).length / knownCount * 100);
+    coveragePill.style.display = "block";
+    coveragePill.innerHTML = `Library coverage: <b style="color:var(--green)">${pct}%</b> auto-routed &nbsp;|&nbsp; <b style="color:var(--amber)">${inboxPct}%</b> in Inbox`;
+  } else if(coveragePill){
+    coveragePill.style.display = "none";
+  }
+
   if(!targets.length){
     emptyNote.style.display="block"; grid.innerHTML=""; return;
   }
@@ -652,6 +766,213 @@ async function refreshTarget(spotify_id){
   hideOv();
   if(res.ok){ await sync(); showToast("Target refreshed!", "success"); }
   else showToast("Refresh failed", "error");
+}
+
+// ── DISCOVER ─────────────────────────────────────────────────────────────────
+async function loadSuggestedTargets(forceReload){
+  const btn = document.getElementById("btn-load-suggest");
+  const list = document.getElementById("suggest-list");
+  if(btn) btn.disabled = true;
+  list.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:16px 0;display:flex;align-items:center;gap:8px;"><div class="spin"></div> Scoring your playlists...</div>`;
+  try {
+    const d = await fetch("/api/suggest-targets").then(r=>r.json());
+    if(d.error){ list.innerHTML=`<div class="note note-warn">${esc(d.error)}</div>`; return; }
+    const existingIds = new Set((S.targets||[]).map(t=>t.spotify_id));
+    list.innerHTML = (d.playlists||[]).map(pl=>{
+      const isAdded = existingIds.has(pl.id);
+      const stars = "★".repeat(pl.stars) + "☆".repeat(3-pl.stars);
+      const descSnip = pl.description ? `<div class="suggest-card-desc">${esc(pl.description.slice(0,80))}${pl.description.length>80?"…":""}</div>` : "";
+      return `
+      <div class="suggest-card" id="suggest-${esc(pl.id)}">
+        <div class="stars">${stars}</div>
+        <div class="suggest-card-info">
+          <div class="suggest-card-name">${esc(pl.name)}</div>
+          <div class="suggest-card-meta">${pl.track_count} songs${pl.has_description?" · has description":""}</div>
+          ${descSnip}
+        </div>
+        ${isAdded
+          ? `<span class="badge badge-g" style="flex-shrink:0;">✓ Added</span>`
+          : `<button class="btn btn-og btn-sm" onclick="addTargetFromSuggest('${esc(pl.id)}',this)" style="flex-shrink:0;">+ Add Target</button>`
+        }
+      </div>`;
+    }).join("") || `<div class="note">No playlists found.</div>`;
+  } catch(e){
+    list.innerHTML=`<div class="note note-warn">Failed to load playlists.</div>`;
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function addTargetFromSuggest(spotify_id, btn){
+  if(btn) btn.disabled = true;
+  showOv("Building target embedding...");
+  const res = await fetch("/api/targets",{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({spotify_id})
+  });
+  hideOv();
+  if(res.ok){
+    await sync();
+    // Update the card in place
+    const card = document.getElementById(`suggest-${spotify_id}`);
+    if(card && btn){
+      btn.outerHTML = `<span class="badge badge-g" style="flex-shrink:0;">✓ Added</span>`;
+    }
+    showToast("Target added!", "success");
+  } else {
+    const d = await res.json().catch(()=>({}));
+    showToast(d.error||"Failed to add target", "error");
+    if(btn) btn.disabled = false;
+  }
+}
+
+async function loadVibeTags(){
+  vibeTagsLoaded = true;
+  const wrap = document.getElementById("vibe-tags-wrap");
+  wrap.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:8px 0;display:flex;align-items:center;gap:8px;"><div class="spin"></div> Loading tags...</div>`;
+  try {
+    const d = await fetch("/api/stats").then(r=>r.json());
+    const tags = (d.top_tags||[]).slice(0,40).map(t=>t.tag);
+    if(!tags.length){
+      wrap.innerHTML=`<div class="note">No tags cached yet -- run a sync first.</div>`; return;
+    }
+    wrap.innerHTML = `<div class="tag-chip-grid">${tags.map(tag=>
+      `<div class="tag-chip${vibeSelectedTags.includes(tag)?" sel":""}" onclick="vibeToggleTag('${esc(tag)}')">${esc(tag)}</div>`
+    ).join("")}</div>`;
+  } catch(e){
+    wrap.innerHTML=`<div class="note note-warn">Could not load tags.</div>`;
+  }
+}
+
+function vibeToggleTag(tag){
+  const idx = vibeSelectedTags.indexOf(tag);
+  if(idx>=0) vibeSelectedTags.splice(idx,1);
+  else if(vibeSelectedTags.length<15) vibeSelectedTags.push(tag);
+  // Update chip states without full reload
+  document.querySelectorAll(".tag-chip").forEach(el=>{
+    el.classList.toggle("sel", vibeSelectedTags.includes(el.textContent.trim()));
+  });
+  renderVibePicks();
+}
+
+function renderVibePicks(){
+  const selDiv = document.getElementById("vibe-selected");
+  const chips = document.getElementById("vibe-selected-chips");
+  const form = document.getElementById("vibe-builder-form");
+  const autoDesc = document.getElementById("vibe-auto-desc");
+  if(!vibeSelectedTags.length){
+    selDiv.style.display="none"; form.style.display="none"; return;
+  }
+  selDiv.style.display="block";
+  chips.innerHTML = vibeSelectedTags.map(tag=>
+    `<div class="tag-chip sel" onclick="vibeToggleTag('${esc(tag)}')">${esc(tag)} <span style="opacity:.5;font-size:9px;">x</span></div>`
+  ).join("");
+  form.style.display="block";
+  const desc = `Tracks tagged with: ${vibeSelectedTags.slice(0,5).join(", ")}${vibeSelectedTags.length>5?`, +${vibeSelectedTags.length-5} more`:"."}.`;
+  autoDesc.textContent = `Auto-description: "${desc}"`;
+  autoDesc._desc = desc;
+}
+
+function clearVibePicks(){
+  vibeSelectedTags=[];
+  document.querySelectorAll(".tag-chip").forEach(el=>el.classList.remove("sel"));
+  renderVibePicks();
+}
+
+async function createVibePlaylist(){
+  const name = document.getElementById("vibe-name")?.value?.trim();
+  if(!name){ showToast("Enter a playlist name first"); return; }
+  if(!vibeSelectedTags.length){ showToast("Pick at least one tag"); return; }
+  const desc = document.getElementById("vibe-auto-desc")?._desc || "";
+  showOv("Creating playlist...");
+  // Step 1: Create the Spotify playlist
+  const createRes = await fetch("/api/playlists/create",{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({name, description: desc})
+  });
+  if(!createRes.ok){
+    hideOv();
+    const d = await createRes.json().catch(()=>({}));
+    showToast(d.error||"Failed to create playlist","error"); return;
+  }
+  const created = await createRes.json();
+  // Step 2: Add it as a target
+  document.getElementById("ov-title-text").textContent = "Building target embedding...";
+  const addRes = await fetch("/api/targets",{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({spotify_id: created.spotify_id})
+  });
+  hideOv();
+  if(addRes.ok){
+    clearVibePicks();
+    document.getElementById("vibe-name").value="";
+    await sync();
+    showToast(`"${name}" created and added as target!`, "success");
+  } else {
+    const d = await addRes.json().catch(()=>({}));
+    showToast(d.error||"Playlist created but failed to add as target","warning");
+  }
+}
+
+async function runPreview(){
+  const btn = document.getElementById("btn-run-preview");
+  const wrap = document.getElementById("preview-wrap");
+  const empty = document.getElementById("preview-empty");
+  if(btn) btn.disabled=true;
+  empty.textContent = "Running preview...";
+  try {
+    const d = await fetch("/api/preview-routing",{method:"POST"}).then(r=>r.json());
+    if(d.error){ empty.textContent=d.error; return; }
+    if(!d.total){ empty.textContent="No cached tracks with embeddings found."; return; }
+    previewData = d;
+    wrap.style.display="block";
+    empty.style.display="none";
+    document.getElementById("preview-slider").value = Math.round(d.default_threshold*100);
+    updatePreviewDisplay(d.default_threshold);
+  } catch(e){
+    empty.textContent="Preview failed -- try again.";
+  } finally {
+    if(btn) btn.disabled=false;
+  }
+}
+
+function updatePreviewDisplay(threshold){
+  if(!previewData) return;
+  const thr = parseFloat(threshold);
+  document.getElementById("preview-threshold-label").textContent = thr.toFixed(2);
+
+  // Count routed vs inbox at this threshold
+  const routedByTarget = {};
+  let inboxCount = 0;
+  for(const a of previewData.assignments){
+    if(a.confidence >= thr) routedByTarget[a.target_id] = (routedByTarget[a.target_id]||0)+1;
+    else inboxCount++;
+  }
+  const total = previewData.total;
+  document.getElementById("preview-summary").textContent =
+    `${total-inboxCount} routed · ${inboxCount} to Inbox`;
+
+  const targetNames = {};
+  (S.targets||[]).forEach(t=>{ targetNames[t.spotify_id]=t.name; });
+
+  const maxCount = Math.max(...previewData.target_ids.map(tid=>routedByTarget[tid]||0), inboxCount, 1);
+  const bars = previewData.per_target.map(pt=>{
+    const count = routedByTarget[pt.target_id]||0;
+    const pct = Math.round(count/maxCount*100);
+    return `<div class="preview-row">
+      <div class="preview-row-name">${esc(targetNames[pt.target_id]||pt.name)}</div>
+      <div class="preview-row-bar"><div class="preview-row-fill" style="width:${pct}%"></div></div>
+      <div class="preview-counts">${count}</div>
+    </div>`;
+  });
+  // Inbox row
+  const inboxPct = Math.round(inboxCount/maxCount*100);
+  bars.push(`<div class="preview-row preview-row-inbox">
+    <div class="preview-row-name" style="color:var(--amber);">Inbox (no match)</div>
+    <div class="preview-row-bar"><div class="preview-row-fill" style="width:${inboxPct}%"></div></div>
+    <div class="preview-counts" style="color:var(--amber);">${inboxCount}</div>
+  </div>`);
+  document.getElementById("preview-bars").innerHTML = bars.join("");
 }
 
 // ── HOURLY ────────────────────────────────────────────────────────────────────

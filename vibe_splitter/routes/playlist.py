@@ -18,6 +18,33 @@ log = logging.getLogger("splitter.routes.playlist")
 playlist_bp = Blueprint("playlist", __name__)
 
 
+@playlist_bp.route("/api/playlists/create", methods=["POST"])
+def api_create_playlist():
+    """Create a new Spotify playlist and return its ID. Used by the Vibe Builder."""
+    t = _ref()
+    if not t:
+        return jsonify({"error": "Not logged in"}), 401
+    data = request.json or {}
+    name = _sanitize_name(data.get("name", ""), max_len=100)
+    description = _sanitize_name(data.get("description", ""), max_len=300)
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    sp = get_sp(t)
+    try:
+        user = sp.current_user()
+        pl = sp.user_playlist_create(
+            user["id"], name, public=True, description=description
+        )
+        s = sm.load()
+        sm.add_log(s, f"Created playlist '{name}' via Vibe Builder")
+        sm.save(s)
+        return jsonify({"ok": True, "spotify_id": pl["id"], "name": pl["name"],
+                        "description": pl.get("description", "")})
+    except Exception as e:
+        log.error(f"Failed to create playlist '{name}': {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @playlist_bp.route("/api/retag", methods=["POST"])
 @rate_limit(5)
 def api_retag():
